@@ -1,0 +1,87 @@
+actions:
+  - name: login
+    definition:
+      kind: synchronous
+      handler: '{{ACTION_BASE_URL}}/login'
+      forward_client_headers: true
+    permissions:
+      - role: anonymous
+    comment: Login action to authenticate users
+  - name: register
+    definition:
+      kind: synchronous
+      handler: '{{ACTION_BASE_URL}}/register'
+      forward_client_headers: true
+    permissions:
+      - role: anonymous
+    comment: Register new users
+  - name: refreshToken
+    definition:
+      kind: synchronous
+      handler: '{{ACTION_BASE_URL}}/refresh-token'
+      forward_client_headers: true
+    permissions:
+      - role: user
+    comment: Refresh JWT token
+  - name: uploadFile
+    definition:
+      kind: synchronous
+      handler: '{{ACTION_BASE_URL}}/upload-file'
+      forward_client_headers: true
+    permissions:
+      - role: user
+    comment: Upload files to storage
+custom_types:
+  enums: []
+  input_objects:
+    - name: LoginInput
+      fields:
+        - name: email
+          type: String!
+        - name: password
+          type: String!
+    - name: RegisterInput
+      fields:
+        - name: name
+          type: String!
+        - name: email
+          type: String!
+        - name: password
+          type: String!
+    - name: RefreshTokenInput
+      fields:
+        - name: refreshToken
+          type: String!
+    - name: UploadFileInput
+      fields:
+        - name: file
+          type: Upload!
+  objects:
+    - name: AuthResponse
+      fields:
+        - name: token
+          type: String!
+        - name: refreshToken
+          type: String!
+        - name: user
+          type: UserObject!
+    - name: RefreshTokenResponse
+      fields:
+        - name: token
+          type: String!
+        - name: refreshToken
+          type: String!
+    - name: UserObject
+      fields:
+        - name: id
+          type: String!
+        - name: name
+          type: String!
+        - name: email
+          type: String!
+    - name: FileUploadResponse
+      fields:
+        - name: url
+          type: String!
+  scalars:
+    - name: Upload

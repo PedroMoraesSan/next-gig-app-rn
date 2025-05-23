@@ -25,6 +25,7 @@ NextGig is a mobile job search platform that connects job seekers with employers
 - **API Layer**: Apollo Client for GraphQL operations
 - **Backend**: Hasura GraphQL Engine
 - **Database**: PostgreSQL (managed by Hasura)
+- **Authentication**: JWT-based authentication
 
 ## Project Structure
 
@@ -34,10 +35,13 @@ NextGig is a mobile job search platform that connects job seekers with employers
   - `/navigation`: Navigation configuration
   - `/hooks`: Custom React hooks
   - `/services`: API and backend services
+  - `/graphql`: GraphQL queries, mutations, and fragments
+  - `/context`: React context providers
   - `/utils`: Helper functions
   - `/assets`: Images, fonts, etc.
   - `/types`: TypeScript type definitions
   - `/constants`: App constants
+- `/hasura`: Hasura configuration and migrations
 
 ## Getting Started
 
@@ -45,7 +49,8 @@ NextGig is a mobile job search platform that connects job seekers with employers
 
 - Node.js 18+
 - npm or yarn
-- React Native development environment set up
+- Expo Go app on your mobile device (for Expo development)
+- Docker (for running Hasura locally)
 
 ### Installation
 
@@ -62,23 +67,67 @@ npm install
 yarn install
 ```
 
-3. Start the Metro bundler:
+### Running with Expo
+
+The easiest way to run the app during development is with Expo:
+
 ```bash
-npm start
-# or
-yarn start
+# Start Expo development server
+npm run expo
+
+# Run on Android
+npm run expo:android
+
+# Run on iOS
+npm run expo:ios
+
+# Run on web
+npm run expo:web
 ```
 
-4. Run the app on Android or iOS:
+When you run `npm run expo`, Expo will generate a QR code that you can scan with your phone's camera (iOS) or the Expo Go app (Android) to open the app on your device.
+
+### Running with React Native CLI
+
+You can also run the app using the React Native CLI:
+
 ```bash
+# Start the Metro bundler
+npm start
+
+# Run on Android
 npm run android
-# or
+
+# Run on iOS
 npm run ios
+```
+
+### Setting up Hasura Backend
+
+1. Start Hasura using Docker:
+```bash
+cd hasura
+docker-compose up -d
+```
+
+2. Apply migrations:
+```bash
+hasura migrate apply
+```
+
+3. Apply metadata:
+```bash
+hasura metadata apply
+```
+
+4. Seed the database:
+```bash
+hasura seed apply
 ```
 
 ## Development Roadmap
 
-This project follows the development roadmap outlined in the [DevelopmentTree.md](../Next-Gig-App/DevelopmentTree.md) file, which includes:
+This project follows the development roadmap outlined in the [DevelopmentTree.md](./DevelopmentTree.md) file, which includes:
 
 1. React Native Project Setup
 2. Backend Infrastructure with Hasura
@@ -90,7 +139,7 @@ This project follows the development roadmap outlined in the [DevelopmentTree.md
 
 ## Current Status
 
-The project is currently in the initial development phase, with the basic structure and UI components in place. The app uses mock data for development purposes, with plans to integrate with Hasura GraphQL backend in future iterations.
+The project is transitioning from using mock data to integrating with a Hasura GraphQL backend. The basic structure, UI components, and navigation are in place, with ongoing work to implement real data fetching and authentication.
 
 ## License
 

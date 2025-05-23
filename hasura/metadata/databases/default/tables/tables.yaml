@@ -1,0 +1,316 @@
+- table:
+    schema: public
+    name: applications
+  object_relationships:
+    - name: job
+      using:
+        foreign_key_constraint_on: job_id
+    - name: user
+      using:
+        foreign_key_constraint_on: user_id
+  select_permissions:
+    - role: user
+      permission:
+        columns:
+          - id
+          - user_id
+          - job_id
+          - resume_url
+          - cover_letter
+          - status
+          - created_at
+          - updated_at
+        filter:
+          user_id:
+            _eq: X-Hasura-User-Id
+  insert_permissions:
+    - role: user
+      permission:
+        check:
+          user_id:
+            _eq: X-Hasura-User-Id
+        columns:
+          - job_id
+          - resume_url
+          - cover_letter
+        backend_only: false
+  update_permissions:
+    - role: user
+      permission:
+        columns:
+          - status
+        filter:
+          user_id:
+            _eq: X-Hasura-User-Id
+        check: null
+  delete_permissions:
+    - role: user
+      permission:
+        filter:
+          user_id:
+            _eq: X-Hasura-User-Id
+
+- table:
+    schema: public
+    name: job_alerts
+  object_relationships:
+    - name: user
+      using:
+        foreign_key_constraint_on: user_id
+  select_permissions:
+    - role: user
+      permission:
+        columns:
+          - id
+          - user_id
+          - keywords
+          - location
+          - job_type
+          - frequency
+          - created_at
+          - updated_at
+        filter:
+          user_id:
+            _eq: X-Hasura-User-Id
+  insert_permissions:
+    - role: user
+      permission:
+        check:
+          user_id:
+            _eq: X-Hasura-User-Id
+        columns:
+          - keywords
+          - location
+          - job_type
+          - frequency
+        backend_only: false
+  update_permissions:
+    - role: user
+      permission:
+        columns:
+          - keywords
+          - location
+          - job_type
+          - frequency
+        filter:
+          user_id:
+            _eq: X-Hasura-User-Id
+        check: null
+  delete_permissions:
+    - role: user
+      permission:
+        filter:
+          user_id:
+            _eq: X-Hasura-User-Id
+
+- table:
+    schema: public
+    name: jobs
+  array_relationships:
+    - name: applications
+      using:
+        foreign_key_constraint_on:
+          column: job_id
+          table:
+            schema: public
+            name: applications
+    - name: saved_jobs
+      using:
+        foreign_key_constraint_on:
+          column: job_id
+          table:
+            schema: public
+            name: saved_jobs
+  select_permissions:
+    - role: anonymous
+      permission:
+        columns:
+          - id
+          - title
+          - company
+          - company_logo
+          - location
+          - job_type
+          - tags
+          - salary
+          - description
+          - posted_date
+          - requirements
+          - benefits
+          - featured
+          - created_at
+          - updated_at
+        filter: {}
+    - role: user
+      permission:
+        columns:
+          - id
+          - title
+          - company
+          - company_logo
+          - location
+          - job_type
+          - tags
+          - salary
+          - description
+          - posted_date
+          - requirements
+          - benefits
+          - featured
+          - created_at
+          - updated_at
+        filter: {}
+
+- table:
+    schema: public
+    name: profiles
+  object_relationships:
+    - name: user
+      using:
+        foreign_key_constraint_on: user_id
+  select_permissions:
+    - role: user
+      permission:
+        columns:
+          - id
+          - user_id
+          - bio
+          - location
+          - avatar_url
+          - resume_url
+          - created_at
+          - updated_at
+        filter:
+          user_id:
+            _eq: X-Hasura-User-Id
+  update_permissions:
+    - role: user
+      permission:
+        columns:
+          - bio
+          - location
+          - avatar_url
+          - resume_url
+        filter:
+          user_id:
+            _eq: X-Hasura-User-Id
+        check: null
+
+- table:
+    schema: public
+    name: refresh_tokens
+  object_relationships:
+    - name: user
+      using:
+        foreign_key_constraint_on: user_id
+  select_permissions:
+    - role: user
+      permission:
+        columns:
+          - id
+          - user_id
+          - token
+          - expires_at
+          - created_at
+        filter:
+          user_id:
+            _eq: X-Hasura-User-Id
+
+- table:
+    schema: public
+    name: saved_jobs
+  object_relationships:
+    - name: job
+      using:
+        foreign_key_constraint_on: job_id
+    - name: user
+      using:
+        foreign_key_constraint_on: user_id
+  select_permissions:
+    - role: user
+      permission:
+        columns:
+          - id
+          - user_id
+          - job_id
+          - created_at
+        filter:
+          user_id:
+            _eq: X-Hasura-User-Id
+  insert_permissions:
+    - role: user
+      permission:
+        check:
+          user_id:
+            _eq: X-Hasura-User-Id
+        columns:
+          - job_id
+        backend_only: false
+  delete_permissions:
+    - role: user
+      permission:
+        filter:
+          user_id:
+            _eq: X-Hasura-User-Id
+
+- table:
+    schema: public
+    name: users
+  object_relationships:
+    - name: profile
+      using:
+        foreign_key_constraint_on:
+          column: user_id
+          table:
+            schema: public
+            name: profiles
+  array_relationships:
+    - name: applications
+      using:
+        foreign_key_constraint_on:
+          column: user_id
+          table:
+            schema: public
+            name: applications
+    - name: job_alerts
+      using:
+        foreign_key_constraint_on:
+          column: user_id
+          table:
+            schema: public
+            name: job_alerts
+    - name: refresh_tokens
+      using:
+        foreign_key_constraint_on:
+          column: user_id
+          table:
+            schema: public
+            name: refresh_tokens
+    - name: saved_jobs
+      using:
+        foreign_key_constraint_on:
+          column: user_id
+          table:
+            schema: public
+            name: saved_jobs
+  select_permissions:
+    - role: user
+      permission:
+        columns:
+          - id
+          - name
+          - email
+          - created_at
+          - updated_at
+        filter:
+          id:
+            _eq: X-Hasura-User-Id
+  update_permissions:
+    - role: user
+      permission:
+        columns:
+          - name
+        filter:
+          id:
+            _eq: X-Hasura-User-Id
+        check: null
