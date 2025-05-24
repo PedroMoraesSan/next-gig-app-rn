@@ -1,94 +1,73 @@
 import { Platform } from 'react-native';
-import { createClient } from '@segment/analytics-react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import React from 'react';
+import Segment from 'react-native-analytics-segment';
 
-// Define event types
+// Event types
 export enum EventType {
-  // Screen views
-  SCREEN_VIEW = 'Screen View',
-  
-  // Authentication events
+  // User events
   LOGIN = 'Login',
   SIGNUP = 'Signup',
   LOGOUT = 'Logout',
   
-  // Job search events
-  SEARCH_JOBS = 'Search Jobs',
-  FILTER_JOBS = 'Filter Jobs',
-  VIEW_JOB = 'View Job',
-  SAVE_JOB = 'Save Job',
-  UNSAVE_JOB = 'Unsave Job',
-  
-  // Application events
-  APPLY_JOB = 'Apply for Job',
-  UPDATE_APPLICATION = 'Update Application',
-  DELETE_APPLICATION = 'Delete Application',
-  
-  // Resume events
-  UPLOAD_RESUME = 'Upload Resume',
-  UPDATE_RESUME = 'Update Resume',
-  
-  // Job alert events
-  CREATE_JOB_ALERT = 'Create Job Alert',
-  DELETE_JOB_ALERT = 'Delete Job Alert',
-  
-  // Interview events
-  SCHEDULE_INTERVIEW = 'Schedule Interview',
-  UPDATE_INTERVIEW = 'Update Interview',
-  DELETE_INTERVIEW = 'Delete Interview',
+  // Job events
+  JOB_VIEW = 'Job View',
+  JOB_SEARCH = 'Job Search',
+  JOB_SAVE = 'Job Save',
+  JOB_UNSAVE = 'Job Unsave',
+  JOB_APPLICATION = 'Job Application',
+  JOB_SHARE = 'Job Share',
   
   // Profile events
-  UPDATE_PROFILE = 'Update Profile',
+  PROFILE_UPDATE = 'Profile Update',
+  RESUME_UPDATE = 'Resume Update',
   
-  // Error events
-  ERROR = 'Error'
-}
-
-// Define user properties
-export enum UserProperty {
-  USER_ID = 'user_id',
-  EMAIL = 'email',
-  NAME = 'name',
-  LOCATION = 'location',
-  JOB_TITLE = 'job_title',
-  EXPERIENCE_LEVEL = 'experience_level',
-  SKILLS = 'skills',
-  PREFERRED_JOB_TYPE = 'preferred_job_type',
-  PREFERRED_LOCATION = 'preferred_location',
-  ACCOUNT_CREATED_AT = 'account_created_at',
-  LAST_ACTIVE_AT = 'last_active_at'
+  // Alert events
+  JOB_ALERT_CREATE = 'Job Alert Create',
+  JOB_ALERT_DELETE = 'Job Alert Delete',
+  
+  // Interview events
+  INTERVIEW_SCHEDULING = 'Interview Scheduling',
+  
+  // App events
+  APP_OPEN = 'App Open',
+  APP_BACKGROUND = 'App Background',
+  APP_FOREGROUND = 'App Foreground',
+  SCREEN_VIEW = 'Screen View',
+  ERROR = 'Error',
 }
 
 // Analytics service
 class AnalyticsService {
-  private segmentClient: any = null;
   private isInitialized: boolean = false;
-  private userId: string | null = null;
-  private offlineEvents: any[] = [];
-  private storageKey: string = 'offline_analytics_events';
   
   // Initialize analytics
-  async initialize(writeKey: string) {
+  async initialize() {
     if (this.isInitialized) return;
     
     try {
-      // Create Segment client
-      this.segmentClient = createClient({
-        writeKey,
-        trackAppLifecycleEvents: true, // Track app lifecycle events automatically
-        recordScreenViews: true, // Record screen views automatically
-        flushAt: 20, // Batch events
-        flushInterval: 30, // Flush every 30 seconds
-        debug: __DEV__ // Enable debug mode in development
+      // Initialize Segment
+      await Segment.setup('YOUR_SEGMENT_WRITE_KEY', {
+        trackApplicationLifecycleEvents: true,
+        recordScreenViews: true,
+        ios: {
+          trackAdvertising: false,
+          trackDeepLinks: true,
+        },
+        android: {
+          collectDeviceId: false,
+        },
       });
       
-      // Load offline events
-      await this.loadOfflineEvents();
-      
-      // Process offline events if any
-      if (this.offlineEvents.length > 0) {
-        await this.processOfflineEvents();
-      }
+      // Set common properties
+      Segment.setContext({
+        app: {
+          version: '1.0.0', // Replace with actual app version
+          build: '1', // Replace with actual build number
+        },
+        device: {
+          type: Platform.OS,
+        },
+      });
       
       this.isInitialized = true;
       console.log('Analytics initialized');
@@ -97,184 +76,130 @@ class AnalyticsService {
     }
   }
   
-  // Load offline events from storage
-  private async loadOfflineEvents() {
-    try {
-      const eventsData = await AsyncStorage.getItem(this.storageKey);
-      if (eventsData) {
-        this.offlineEvents = JSON.parse(eventsData);
-        console.log(`Loaded ${this.offlineEvents.length} offline events`);
-      }
-    } catch (error) {
-      console.error('Error loading offline events:', error);
-    }
-  }
-  
-  // Save offline events to storage
-  private async saveOfflineEvents() {
-    try {
-      await AsyncStorage.setItem(this.storageKey, JSON.stringify(this.offlineEvents));
-    } catch (error) {
-      console.error('Error saving offline events:', error);
-    }
-  }
-  
-  // Process offline events
-  private async processOfflineEvents() {
-    if (!this.segmentClient || this.offlineEvents.length === 0) return;
-    
-    try {
-      console.log(`Processing ${this.offlineEvents.length} offline events`);
-      
-      for (const event of this.offlineEvents) {
-        switch (event.type) {
-          case 'track':
-            await this.segmentClient.track(event.name, event.properties);
-            break;
-          case 'screen':
-            await this.segmentClient.screen(event.name, event.properties);
-            break;
-          case 'identify':
-            await this.segmentClient.identify(event.userId, event.traits);
-            break;
-        }
-      }
-      
-      // Clear offline events
-      this.offlineEvents = [];
-      await this.saveOfflineEvents();
-    } catch (error) {
-      console.error('Error processing offline events:', error);
-    }
-  }
-  
-  // Identify user
-  async identifyUser(userId: string, traits: Record<string, any> = {}) {
-    this.userId = userId;
-    
-    try {
-      if (this.segmentClient) {
-        await this.segmentClient.identify(userId, {
-          ...traits,
-          platform: Platform.OS,
-          appVersion: '1.0.0', // Replace with actual app version
-        });
-      } else {
-        // Store offline
-        this.offlineEvents.push({
-          type: 'identify',
-          userId,
-          traits: {
-            ...traits,
-            platform: Platform.OS,
-            appVersion: '1.0.0',
-          }
-        });
-        await this.saveOfflineEvents();
-      }
-    } catch (error) {
-      console.error('Error identifying user:', error);
-    }
-  }
-  
   // Track event
-  async trackEvent(event: EventType, properties: Record<string, any> = {}) {
+  trackEvent(event: EventType, properties?: Record<string, any>) {
     try {
-      if (this.segmentClient) {
-        await this.segmentClient.track(event, {
-          ...properties,
-          userId: this.userId,
-          platform: Platform.OS,
-          timestamp: new Date().toISOString()
-        });
-      } else {
-        // Store offline
-        this.offlineEvents.push({
-          type: 'track',
-          name: event,
-          properties: {
-            ...properties,
-            userId: this.userId,
-            platform: Platform.OS,
-            timestamp: new Date().toISOString()
-          }
-        });
-        await this.saveOfflineEvents();
-      }
+      Segment.track(event, properties);
     } catch (error) {
-      console.error('Error tracking event:', error);
+      console.error(`Error tracking event ${event}:`, error);
     }
   }
   
   // Track screen view
-  async trackScreenView(screenName: string, properties: Record<string, any> = {}) {
+  trackScreenView(screenName: string, properties?: Record<string, any>) {
     try {
-      if (this.segmentClient) {
-        await this.segmentClient.screen(screenName, {
-          ...properties,
-          userId: this.userId,
-          platform: Platform.OS,
-          timestamp: new Date().toISOString()
-        });
-      } else {
-        // Store offline
-        this.offlineEvents.push({
-          type: 'screen',
-          name: screenName,
-          properties: {
-            ...properties,
-            userId: this.userId,
-            platform: Platform.OS,
-            timestamp: new Date().toISOString()
-          }
-        });
-        await this.saveOfflineEvents();
-      }
+      Segment.screen(screenName, properties);
     } catch (error) {
-      console.error('Error tracking screen view:', error);
+      console.error(`Error tracking screen view ${screenName}:`, error);
     }
   }
   
-  // Track error
-  async trackError(errorName: string, errorDetails: Record<string, any> = {}) {
-    await this.trackEvent(EventType.ERROR, {
-      errorName,
-      ...errorDetails
-    });
+  // Identify user
+  identifyUser(userId: string, traits?: Record<string, any>) {
+    try {
+      Segment.identify(userId, traits);
+    } catch (error) {
+      console.error(`Error identifying user ${userId}:`, error);
+    }
   }
   
   // Reset user
-  async resetUser() {
-    this.userId = null;
-    
+  resetUser() {
     try {
-      if (this.segmentClient) {
-        await this.segmentClient.reset();
-      }
+      Segment.reset();
     } catch (error) {
       console.error('Error resetting user:', error);
     }
   }
   
-  // Flush events
-  async flushEvents() {
-    try {
-      if (this.segmentClient) {
-        await this.segmentClient.flush();
-      }
-    } catch (error) {
-      console.error('Error flushing events:', error);
-    }
+  // Track job view
+  trackJobView(jobId: string, jobTitle: string, company: string) {
+    this.trackEvent(EventType.JOB_VIEW, {
+      job_id: jobId,
+      job_title: jobTitle,
+      company,
+    });
+  }
+  
+  // Track job search
+  trackJobSearch(query: string, filters?: Record<string, any>, resultCount?: number) {
+    this.trackEvent(EventType.JOB_SEARCH, {
+      query,
+      filters,
+      result_count: resultCount,
+    });
+  }
+  
+  // Track job save
+  trackJobSave(jobId: string, jobTitle: string, company: string) {
+    this.trackEvent(EventType.JOB_SAVE, {
+      job_id: jobId,
+      job_title: jobTitle,
+      company,
+    });
+  }
+  
+  // Track job unsave
+  trackJobUnsave(jobId: string, jobTitle: string, company: string) {
+    this.trackEvent(EventType.JOB_UNSAVE, {
+      job_id: jobId,
+      job_title: jobTitle,
+      company,
+    });
+  }
+  
+  // Track job application
+  trackJobApplication(jobId: string, jobTitle: string, company: string) {
+    this.trackEvent(EventType.JOB_APPLICATION, {
+      job_id: jobId,
+      job_title: jobTitle,
+      company,
+    });
+  }
+  
+  // Track job share
+  trackJobShare(jobId: string, jobTitle: string, company: string, shareMethod?: string) {
+    this.trackEvent(EventType.JOB_SHARE, {
+      job_id: jobId,
+      job_title: jobTitle,
+      company,
+      share_method: shareMethod,
+    });
+  }
+  
+  // Track interview scheduling
+  trackInterviewScheduling(jobId: string, jobTitle: string, company: string) {
+    this.trackEvent(EventType.INTERVIEW_SCHEDULING, {
+      job_id: jobId,
+      job_title: jobTitle,
+      company,
+    });
+  }
+  
+  // Track error
+  trackError(error: Error, context?: Record<string, any>) {
+    this.trackEvent(EventType.ERROR, {
+      error_message: error.message,
+      error_stack: error.stack,
+      ...context,
+    });
   }
 }
 
 // Export singleton instance
 export const analytics = new AnalyticsService();
 
-// Initialize analytics with your Segment write key
+// Initialize analytics
 export const initializeAnalytics = async () => {
-  // Replace with your actual Segment write key
-  const SEGMENT_WRITE_KEY = 'YOUR_SEGMENT_WRITE_KEY';
+  await analytics.initialize();
+};
+
+// Create a hook for analytics
+export const useAnalytics = (screenName: string, properties?: Record<string, any>) => {
+  // Track screen view
+  React.useEffect(() => {
+    analytics.trackScreenView(screenName, properties);
+  }, [screenName]);
   
-  await analytics.initialize(SEGMENT_WRITE_KEY);
+  return analytics;
 };

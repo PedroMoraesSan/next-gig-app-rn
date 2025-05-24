@@ -9,6 +9,7 @@ import { AuthProvider } from './src/context/AuthContext';
 import { initializeAnalytics } from './src/services/analytics';
 import { pushNotificationService } from './src/services/pushNotificationService';
 import { initSentry } from './src/services/errorTracking';
+import OfflineNotice from './src/components/OfflineNotice';
 
 // Initialize Sentry
 initSentry();
@@ -66,6 +67,7 @@ const AppWithErrorBoundary = Sentry.withErrorBoundary(
       <SafeAreaProvider>
         <ApolloProvider client={client}>
           <AuthProvider>
+            <OfflineNotice />
             <Navigation />
           </AuthProvider>
         </ApolloProvider>

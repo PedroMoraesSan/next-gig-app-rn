@@ -1,6 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import NetInfo from '@react-native-community/netinfo';
 import { ApolloClient } from '@apollo/client';
+import { networkService } from './networkService';
+import { resolveConflict, ConflictStrategy, hasConflict } from './conflictResolution';
+import { EventEmitter } from 'events';
 
 // Mutation queue item interface
 export interface MutationQueueItem {
@@ -10,8 +12,19 @@ export interface MutationQueueItem {
   optimisticResponse?: any;
   update?: any;
   context?: any;
+  operationName: string;
+  entityType: string;
   createdAt: number;
   retries: number;
+}
+
+// Queue events
+export enum QueueEvents {
+  ITEM_ADDED = 'item_added',
+  ITEM_PROCESSED = 'item_processed',
+  ITEM_FAILED = 'item_failed',
+  QUEUE_PROCESSED = 'queue_processed',
+  CONFLICT_DETECTED = 'conflict_detected',
 }
 
 // Offline queue service
@@ -22,28 +35,42 @@ class OfflineQueueService {
   private maxRetries: number = 5;
   private storageKey: string = 'offline_mutation_queue';
   private networkListener: any = null;
+  private eventEmitter: EventEmitter = new EventEmitter();
+  private entityTypeMap: Record<string, string> = {
+    UpdateProfile: 'profile',
+    CreateProfile: 'profile',
+    UpdateApplication: 'application',
+    CreateApplication: 'application',
+    UpdateJobAlert: 'jobAlert',
+    CreateJobAlert: 'jobAlert',
+    SaveJob: 'savedJob',
+    UnsaveJob: 'savedJob',
+    UpdateResume: 'resume',
+    CreateResume: 'resume',
+  };
   
   // Initialize the queue service
   async initialize(client: ApolloClient<any>) {
     this.apolloClient = client;
     await this.loadQueue();
     this.setupNetworkListener();
+    console.log('Offline queue service initialized');
   }
   
   // Set up network listener
   private setupNetworkListener() {
-    // Remove existing listener if any
-    if (this.networkListener) {
-      this.networkListener();
-    }
-    
-    // Set up new listener
-    this.networkListener = NetInfo.addEventListener(state => {
-      if (state.isConnected && !this.isProcessing && this.queue.length > 0) {
-        this.processQueue();
-      }
-    });
+    // Set up network listener
+    networkService.addConnectivityListener(this.handleConnectivityChange);
+    networkService.startMonitoring();
   }
+  
+  // Handle connectivity changes
+  private handleConnectivityChange = (isConnected: boolean) => {
+    if (isConnected && !this.isProcessing && this.queue.length > 0) {
+      console.log('Network is back online, processing queue...');
+      this.processQueue();
+    }
+  };
   
   // Load queue from storage
   private async loadQueue() {
@@ -75,6 +102,11 @@ class OfflineQueueService {
     update?: any,
     context?: any
   ): Promise<string> {
+    // Extract operation name from the mutation document
+    const operationName = mutation.definitions.find(
+      (def: any) => def.kind === 'OperationDefinition'
+    )?.name?.value || 'UnknownOperation';
+    
     const id = Date.now().toString();
     const queueItem: MutationQueueItem = {
       id,
@@ -83,6 +115,8 @@ class OfflineQueueService {
       optimisticResponse,
       update,
       context,
+      operationName,
+      entityType: this.getEntityTypeForOperation(operationName),
       createdAt: Date.now(),
       retries: 0
     };
@@ -90,13 +124,20 @@ class OfflineQueueService {
     this.queue.push(queueItem);
     await this.saveQueue();
     
+    // Emit event
+    this.eventEmitter.emit(QueueEvents.ITEM_ADDED, queueItem);
+    
     // Try to process queue if online
-    const networkState = await NetInfo.fetch();
-    if (networkState.isConnected && !this.isProcessing) {
+    if (networkService.isNetworkConnected() && !this.isProcessing) {
       this.processQueue();
     }
     
     return id;
+  }
+  
+  // Get entity type for operation
+  private getEntityTypeForOperation(operationName: string): string {
+    return this.entityTypeMap[operationName] || 'unknown';
   }
   
   // Process the queue
@@ -109,8 +150,7 @@ class OfflineQueueService {
     
     try {
       // Check network status
-      const networkState = await NetInfo.fetch();
-      if (!networkState.isConnected) {
+      if (!networkService.isNetworkConnected()) {
         this.isProcessing = false;
         return;
       }
@@ -121,7 +161,7 @@ class OfflineQueueService {
       const itemsToProcess = [...this.queue];
       for (const item of itemsToProcess) {
         try {
-          await this.apolloClient.mutate({
+          const result = await this.apolloClient.mutate({
             mutation: item.mutation,
             variables: item.variables,
             optimisticResponse: item.optimisticResponse,
@@ -129,13 +169,28 @@ class OfflineQueueService {
             context: item.context
           });
           
+          // Handle potential conflicts
+          if (result.data) {
+            const conflictResolved = await this.handleConflictResolution(result.data, item);
+            if (!conflictResolved) {
+              // Skip to next item if conflict couldn't be resolved
+              continue;
+            }
+          }
+          
           // Remove successful item from queue
           this.queue = this.queue.filter(queueItem => queueItem.id !== item.id);
           await this.saveQueue();
           
-          console.log(`Successfully processed offline mutation: ${item.id}`);
+          // Emit event
+          this.eventEmitter.emit(QueueEvents.ITEM_PROCESSED, item);
+          
+          console.log(`Successfully processed offline mutation: ${item.id} (${item.operationName})`);
         } catch (error) {
-          console.error(`Error processing offline mutation ${item.id}:`, error);
+          console.error(`Error processing offline mutation ${item.id} (${item.operationName}):`, error);
+          
+          // Emit event
+          this.eventEmitter.emit(QueueEvents.ITEM_FAILED, { item, error });
           
           // Increment retry count
           const updatedItem = this.queue.find(queueItem => queueItem.id === item.id);
@@ -144,7 +199,7 @@ class OfflineQueueService {
             
             // Remove if max retries reached
             if (updatedItem.retries >= this.maxRetries) {
-              console.log(`Removing offline mutation after ${this.maxRetries} failed attempts: ${item.id}`);
+              console.log(`Removing offline mutation after ${this.maxRetries} failed attempts: ${item.id} (${item.operationName})`);
               this.queue = this.queue.filter(queueItem => queueItem.id !== item.id);
             }
             
@@ -152,10 +207,85 @@ class OfflineQueueService {
           }
         }
       }
+      
+      // Emit event when queue processing is complete
+      this.eventEmitter.emit(QueueEvents.QUEUE_PROCESSED);
     } catch (error) {
       console.error('Error processing offline queue:', error);
     } finally {
       this.isProcessing = false;
+    }
+  }
+  
+  // Handle conflict resolution
+  private async handleConflictResolution(serverData: any, item: MutationQueueItem): Promise<boolean> {
+    try {
+      // Get the entity type and data
+      const entityType = item.entityType;
+      const clientData = item.variables;
+      
+      // Extract server data based on operation name
+      const serverEntityData = this.extractServerData(serverData, item.operationName);
+      
+      if (!serverEntityData) {
+        return true; // No server data to compare, assume no conflict
+      }
+      
+      // Check if there's a conflict
+      if (hasConflict(clientData, serverEntityData)) {
+        console.log(`Conflict detected for ${item.operationName}`);
+        
+        // Emit conflict event
+        this.eventEmitter.emit(QueueEvents.CONFLICT_DETECTED, {
+          item,
+          serverData: serverEntityData,
+          clientData
+        });
+        
+        // Resolve the conflict
+        const resolvedData = resolveConflict(entityType, clientData, serverEntityData);
+        
+        // If manual resolution is needed, return false to skip this item
+        if (resolvedData._conflict) {
+          console.log(`Manual conflict resolution needed for ${item.id}`);
+          return false;
+        }
+        
+        // If data was changed during resolution, update with resolved data
+        if (JSON.stringify(serverEntityData) !== JSON.stringify(resolvedData)) {
+          await this.apolloClient?.mutate({
+            mutation: item.mutation,
+            variables: resolvedData
+          });
+        }
+      }
+      
+      return true;
+    } catch (error) {
+      console.error(`Error resolving conflict for ${item.operationName}:`, error);
+      return false;
+    }
+  }
+  
+  // Extract server data based on operation name
+  private extractServerData(serverData: any, operationName: string): any {
+    // Different extraction logic based on operation type
+    switch (operationName) {
+      case 'UpdateProfile':
+        return serverData.update_profiles?.returning[0];
+      case 'UpdateApplication':
+        return serverData.update_applications?.returning[0];
+      case 'UpdateJobAlert':
+        return serverData.update_job_alerts?.returning[0];
+      case 'UpdateResume':
+        return serverData.update_resumes?.returning[0];
+      default:
+        // For other operations, try to infer the data structure
+        const key = Object.keys(serverData).find(k => k.includes('update_') || k.includes('insert_'));
+        if (key && serverData[key]?.returning?.[0]) {
+          return serverData[key].returning[0];
+        }
+        return null;
     }
   }
   
@@ -181,12 +311,21 @@ class OfflineQueueService {
     await this.saveQueue();
   }
   
+  // Add event listener
+  addEventListener(event: QueueEvents, listener: (...args: any[]) => void): void {
+    this.eventEmitter.on(event, listener);
+  }
+  
+  // Remove event listener
+  removeEventListener(event: QueueEvents, listener: (...args: any[]) => void): void {
+    this.eventEmitter.off(event, listener);
+  }
+  
   // Clean up resources
   cleanup() {
-    if (this.networkListener) {
-      this.networkListener();
-      this.networkListener = null;
-    }
+    networkService.removeConnectivityListener(this.handleConnectivityChange);
+    networkService.stopMonitoring();
+    this.eventEmitter.removeAllListeners();
   }
 }
 
@@ -203,10 +342,7 @@ export const createOfflineMutationLink = () => {
       )) {
         try {
           // Check network status
-          const networkState = await NetInfo.fetch();
-          
-          // If offline, add to queue
-          if (!networkState.isConnected) {
+          if (!networkService.isNetworkConnected()) {
             console.log('Device is offline, queueing mutation:', operation.operationName);
             
             const id = await offlineQueue.addToQueue(

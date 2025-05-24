@@ -53,3 +53,62 @@ export const CHECK_JOB_SAVED = gql`
     }
   }
 `;
+
+// Get user job alerts
+export const GET_USER_JOB_ALERTS = gql`
+  query GetUserJobAlerts {
+    job_alerts(order_by: {created_at: desc}) {
+      id
+      keywords
+      location
+      job_type
+      frequency
+      created_at
+      updated_at
+    }
+  }
+`;
+
+// Get user notifications
+export const GET_USER_NOTIFICATIONS = gql`
+  query GetUserNotifications($limit: Int, $offset: Int) {
+    notifications(
+      order_by: {created_at: desc}
+      limit: $limit
+      offset: $offset
+    ) {
+      id
+      type
+      title
+      body
+      data
+      read
+      created_at
+    }
+  }
+`;
+
+// Get notification preferences
+export const GET_USER_NOTIFICATION_PREFERENCES = gql`
+  query GetUserNotificationPreferences {
+    notification_preferences {
+      id
+      type
+      title
+      description
+      enabled
+      created_at
+      updated_at
+    }
+  }
+`;
+// Get unread notification count
+export const GET_UNREAD_NOTIFICATION_COUNT = gql`
+  query GetUnreadNotificationCount {
+    notifications_aggregate(where: {read: {_eq: false}}) {
+      aggregate {
+        count
+      }
+    }
+  }
+`;

@@ -1,16 +1,13 @@
 {
+  "extends": "@react-native/typescript-config/tsconfig.json",
   "compilerOptions": {
-    "allowJs": true,
-    "allowSyntheticDefaultImports": true,
-    "esModuleInterop": true,
-    "isolatedModules": true,
-    "jsx": "react-native",
-    "lib": ["es2017"],
-    "moduleResolution": "node",
-    "noEmit": true,
     "strict": true,
-    "target": "esnext",
-    "skipLibCheck": true
+    "baseUrl": ".",
+    "paths": {
+      "*": ["src/*"]
+    },
+    "types": ["jest", "node"]
   },
-  "extends": "expo/tsconfig.base"
+  "include": ["src", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"],
+  "exclude": ["node_modules", "babel.config.js", "metro.config.js", "jest.config.js"]
 }

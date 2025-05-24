@@ -7,6 +7,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../hooks/useNotifications';
 import { pushNotificationService } from '../services/pushNotificationService';
+import { useSyncStatus } from '../context/SyncContext';
 
 // Import screens
 import HomeScreen from '../screens/HomeScreen';
@@ -22,6 +23,9 @@ import ResumeBuilderScreen from '../screens/ResumeBuilderScreen';
 import JobAlertsScreen from '../screens/JobAlertsScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
 import SettingsScreen from '../screens/SettingsScreen';
+import BiometricSetupScreen from '../screens/BiometricSetupScreen';
+import NotificationPreferencesScreen from '../screens/NotificationPreferencesScreen';
+import ContactSharingScreen from '../screens/ContactSharingScreen';
 
 // Define navigation types
 export type RootStackParamList = {
@@ -35,6 +39,10 @@ export type RootStackParamList = {
   JobAlerts: undefined;
   Notifications: undefined;
   Settings: undefined;
+  BiometricSetup: undefined;
+  NotificationPreferences: undefined;
+  ContactSharing: { jobId: string, jobTitle: string, company: string };
+  Splash: undefined;
 };
 
 export type TabParamList = {
@@ -85,6 +93,8 @@ function SettingsButton() {
 }
 
 function MainTabs() {
+  const { hasPendingOperations } = useSyncStatus();
+  
   return (
     <Tab.Navigator
       screenOptions={({ navigation }) => ({
@@ -125,7 +135,8 @@ function MainTabs() {
           tabBarLabel: 'Saved',
           tabBarIcon: ({ color, size }) => (
             <Text style={{ color, fontSize: size }}>♡</Text>
-          )
+          ),
+          tabBarBadge: hasPendingOperations ? '!' : undefined,
         }}
       />
       <Tab.Screen 
@@ -199,9 +210,19 @@ export default function Navigation() {
               options={{ title: 'Notifications' }} 
             />
             <Stack.Screen 
-              name="Settings" 
-              component={SettingsScreen} 
-              options={{ title: 'Settings' }} 
+              name="BiometricSetup" 
+              component={BiometricSetupScreen} 
+              options={{ title: 'Biometric Authentication' }} 
+            />
+            <Stack.Screen 
+              name="NotificationPreferences" 
+              component={NotificationPreferencesScreen} 
+              options={{ title: 'Notification Preferences' }} 
+            />
+            <Stack.Screen 
+              name="ContactSharing" 
+              component={ContactSharingScreen} 
+              options={{ title: 'Share Job' }} 
             />
           </>
         ) : (

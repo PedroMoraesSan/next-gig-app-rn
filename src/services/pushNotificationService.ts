@@ -96,9 +96,6 @@ class PushNotificationService {
         if (fcmToken) {
           await AsyncStorage.setItem(FCM_TOKEN_KEY, fcmToken);
           console.log('FCM Token:', fcmToken);
-          
-          // In a real app, you would send this token to your backend
-          // await this.sendTokenToBackend(fcmToken);
         }
         return fcmToken;
       }
@@ -230,13 +227,35 @@ class PushNotificationService {
       const token = await this.getFCMToken();
       if (!token) return;
       
-      // In a real app, you would make an API call to register the device
-      console.log(`Registering device token ${token} for user ${userId}`);
+      // Make actual API call to register device
+      const response = await fetch('http://localhost:8080/v1/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await AsyncStorage.getItem('userToken')}`
+        },
+        body: JSON.stringify({
+          query: `
+            mutation RegisterDevice($userId: uuid!, $token: String!, $platform: String!) {
+              insert_device_tokens_one(object: {
+                user_id: $userId,
+                token: $token,
+                platform: $platform
+              }) {
+                id
+              }
+            }
+          `,
+          variables: {
+            userId,
+            token,
+            platform: Platform.OS
+          }
+        })
+      });
       
-      // Example API call:
-      // await api.post('/users/register-device', { userId, token, platform: Platform.OS });
-      
-      return true;
+      const result = await response.json();
+      return !!result.data;
     } catch (error) {
       console.error('Error registering device with backend:', error);
       return false;
@@ -249,13 +268,29 @@ class PushNotificationService {
       const token = await this.getFCMToken();
       if (!token) return;
       
-      // In a real app, you would make an API call to unregister the device
-      console.log(`Unregistering device token ${token}`);
+      // Make actual API call to unregister device
+      const response = await fetch('http://localhost:8080/v1/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await AsyncStorage.getItem('userToken')}`
+        },
+        body: JSON.stringify({
+          query: `
+            mutation UnregisterDevice($token: String!) {
+              delete_device_tokens(where: {token: {_eq: $token}}) {
+                affected_rows
+              }
+            }
+          `,
+          variables: {
+            token
+          }
+        })
+      });
       
-      // Example API call:
-      // await api.post('/users/unregister-device', { token });
-      
-      return true;
+      const result = await response.json();
+      return result.data?.delete_device_tokens?.affected_rows > 0;
     } catch (error) {
       console.error('Error unregistering device with backend:', error);
       return false;

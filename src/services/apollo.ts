@@ -4,13 +4,12 @@ import { onError } from '@apollo/client/link/error';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { persistCache } from 'apollo3-cache-persist';
 import { RetryLink } from '@apollo/client/link/retry';
-import { offsetLimitPagination } from '@apollo/client/utilities';
 import NetInfo from '@react-native-community/netinfo';
 import { createOfflineMutationLink, offlineQueue } from './offlineQueue';
 
-// Create the http link - replace with your Hasura endpoint
+// Create the http link with the actual Hasura endpoint
 const httpLink = createHttpLink({
-  uri: 'https://your-hasura-endpoint.hasura.app/v1/graphql',
+  uri: 'http://localhost:8080/v1/graphql',
 });
 
 // Create the auth link to add authentication headers
@@ -23,13 +22,16 @@ const authLink = setContext(async (_, { headers }) => {
       headers: {
         ...headers,
         authorization: token ? `Bearer ${token}` : '',
-        'x-hasura-role': 'user',
+        'x-hasura-role': token ? 'user' : 'anonymous',
       }
     };
   } catch (e) {
     console.error('Error getting auth token', e);
     return {
-      headers
+      headers: {
+        ...headers,
+        'x-hasura-role': 'anonymous',
+      }
     };
   }
 });
@@ -78,12 +80,24 @@ const retryLink = new RetryLink({
   }
 });
 
-// Create the Apollo cache with pagination policies
+// Create the Apollo cache with improved pagination policies
 const cache = new InMemoryCache({
   typePolicies: {
     Query: {
       fields: {
-        jobs: offsetLimitPagination(['where']),
+        jobs: {
+          // Merge function for pagination
+          keyArgs: ["where"],
+          merge(existing = [], incoming, { args }) {
+            // If we have no args, or we're loading the first page, just return incoming
+            if (!args || !args.offset || args.offset === 0) {
+              return incoming;
+            }
+            
+            // Merge the existing and incoming arrays
+            return [...existing, ...incoming];
+          },
+        },
         saved_jobs: {
           merge(existing = [], incoming) {
             return [...incoming];
@@ -93,8 +107,47 @@ const cache = new InMemoryCache({
           merge(existing = [], incoming) {
             return [...incoming];
           }
+        },
+        notifications: {
+          merge(existing = [], incoming, { readField }) {
+            // If there are no existing items, just return incoming
+            if (!existing || existing.length === 0) return incoming;
+            
+            // Create a map of existing items by ID
+            const existingMap = new Map();
+            existing.forEach(item => {
+              const id = readField('id', item);
+              existingMap.set(id, item);
+            });
+            
+            // Update or add incoming items
+            incoming.forEach(item => {
+              const id = readField('id', item);
+              existingMap.set(id, item);
+            });
+            
+            // Convert map back to array
+            return Array.from(existingMap.values());
+          }
         }
       },
+    },
+    Job: {
+      // Unique identifier for Job type
+      keyFields: ["id"],
+    },
+    User: {
+      // Unique identifier for User type
+      keyFields: ["id"],
+    },
+    Application: {
+      keyFields: ["id"],
+    },
+    SavedJob: {
+      keyFields: ["id"],
+    },
+    Notification: {
+      keyFields: ["id"],
     },
   },
 });
@@ -150,6 +203,9 @@ const initApolloClient = async () => {
       client.refetchQueries({
         include: 'active',
       });
+      
+      // Process offline mutation queue
+      offlineQueue.processQueue();
     }
   });
 

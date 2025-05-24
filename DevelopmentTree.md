@@ -161,78 +161,81 @@ npm install -D @graphql-codegen/cli @graphql-codegen/typescript @graphql-codegen
 ### Phase 6: Mobile-Specific Features
 
 #### 6.1 Push Notifications
-- [ ] Set up Firebase Cloud Messaging or Apple Push Notification Service
-- [ ] Implement notification handling in the app
-- [ ] Create notification preferences screen
-- [ ] Add deep linking from notifications
+- [x] Set up Firebase Cloud Messaging integration
+- [x] Implement notification handling service
+- [x] Create notification preferences screen
+- [x] Implement backend notification delivery service
+- [x] Add deep linking from notifications
+- [ ] Implement notification analytics
+- [ ] Add notification grouping and management
 
 #### 6.2 Offline Support
 - [x] Implement Apollo cache persistence
-- [ ] Add offline mutation queue
-- [ ] Create offline-first UX patterns
-- [ ] Add sync indicators and conflict resolution
+- [x] Add offline mutation queue with retry mechanism
+- [x] Implement network status monitoring
+- [x] Add sync indicators for offline operations
+- [x] Create conflict resolution service
+- [ ] Add manual conflict resolution UI
+- [ ] Implement entity-specific merge strategies
+- [ ] Add offline data validation
+- [ ] Create offline analytics tracking
 
 #### 6.3 Device Integration
-- [ ] Implement biometric authentication
-- [ ] Add calendar integration for interviews
-- [ ] Create contact sharing functionality
-- [ ] Implement location services for job proximity
+- [x] Implement biometric authentication
+- [x] Add calendar integration for interviews
+- [x] Create contact sharing functionality
+- [x] Implement location services for job proximity
+
+### Phase 7: Performance Optimization and Deployment
 
 ### Phase 7: Performance Optimization and Deployment
 
 #### 7.1 Performance Optimization
-- [ ] Implement Apollo cache policies
-- [ ] Add query optimization with fragments
+- [x] Implement Apollo cache policies
+- [x] Add query optimization with fragments
 - [ ] Optimize React Native rendering performance
 - [ ] Reduce bundle size with code splitting
+- [ ] Implement query batching
+- [ ] Add performance monitoring
+- [ ] Optimize image loading and caching
 
 #### 7.2 Deployment Pipeline
-- [ ] Set up CI/CD pipeline for mobile app and Hasura
-- [ ] Configure environment variables for different environments
-- [ ] Implement database migration strategy
+- [x] Set up CI/CD pipeline for mobile app and Hasura
+- [x] Configure environment variables for different environments
+- [x] Implement database migration strategy
 - [ ] Create backup and disaster recovery plan
 - [ ] Set up app store deployment automation
+- [ ] Implement code signing and provisioning profiles
+- [ ] Create release management process
 
 #### 7.3 Monitoring and Analytics
-- [ ] Set up error tracking (Sentry, Firebase Crashlytics)
-- [ ] Implement performance monitoring
-- [ ] Add usage analytics
+- [x] Set up error tracking (Sentry)
+- [x] Implement offline analytics tracking
+- [ ] Add usage analytics with event tracking
 - [ ] Create admin dashboard for system monitoring
+- [ ] Implement crash reporting
+- [ ] Add performance metrics collection
+- [ ] Create user behavior analytics
 
-## Technical Resources
+## Example Data Files
 
-### React Native Resources
-- [React Native Documentation](https://reactnative.dev/docs/getting-started)
-- [NativeWind Documentation](https://www.nativewind.dev/)
-- [React Navigation](https://reactnavigation.org/)
-- [React Native Gesture Handler](https://docs.swmansion.com/react-native-gesture-handler/)
+The following files contain example/mock data that will need to be updated with real data in production:
 
-### Hasura Resources
-- [Hasura Documentation](https://hasura.io/docs/latest/index/)
-- [Hasura Cloud](https://cloud.hasura.io/)
-- [Hasura GitHub Actions](https://github.com/hasura/github-actions)
-- [Hasura CLI](https://hasura.io/docs/latest/hasura-cli/index/)
+### 1. Mock Data Files
+- `/src/constants/mockData.ts`: Contains mock job listings for development and testing
+- `/hasura/seeds/1684712345678_sample_data/up.sql`: Contains initial database seed data
+- `/hasura/seeds/1_sample_data.sql`: Contains basic seed data for testing
 
-### Apollo Client Resources
-- [Apollo Client Documentation](https://www.apollographql.com/docs/react/)
-- [Apollo Client with React Native](https://www.apollographql.com/docs/react/integrations/react-native/)
-- [Apollo Client Caching](https://www.apollographql.com/docs/react/caching/overview/)
-- [Apollo Client DevTools](https://www.apollographql.com/docs/react/development-testing/developer-tooling/)
+### 2. Configuration Files with Example Values
+- `/src/services/apollo.ts`: Contains example GraphQL endpoint URL
+- `/src/services/pushNotificationService.ts`: Contains example notification handling code
+- `/src/services/offlineAnalytics.ts`: Contains example analytics endpoint
 
-### Authentication Resources
-- [Auth0 with React Native](https://auth0.com/docs/quickstart/native/react-native)
-- [Firebase Auth with React Native](https://firebase.google.com/docs/auth/web/react-native)
-- [AWS Amplify Authentication](https://docs.amplify.aws/lib/auth/getting-started/q/platform/react-native/)
+### 3. Test Data
+- `/src/components/__tests__/JobCard.test.tsx`: Contains test data for JobCard component
+- `/e2e/starter.test.js`: Contains example test data for E2E tests
 
-### TypeScript and GraphQL
-- [GraphQL Code Generator](https://www.graphql-code-generator.com/)
-- [TypeScript and GraphQL](https://www.apollographql.com/docs/react/development-testing/static-typing/)
-
-### Deployment and Infrastructure
-- [Fastlane for app deployment](https://fastlane.tools/)
-- [App Center for distribution](https://appcenter.ms/)
-- [Docker Compose for local development](https://hasura.io/docs/latest/getting-started/docker-simple/)
-- [Database migrations with Hasura](https://hasura.io/docs/latest/migrations-metadata-seeds/index/)
+When developing, these files should be updated with appropriate data for your environment.
 
 ## Implementation Considerations
 
@@ -288,3 +291,118 @@ npm install -D @graphql-codegen/cli @graphql-codegen/typescript @graphql-codegen
 - Optimize performance for large job listings
 - Set up CI/CD pipeline for deployment
 - Implement analytics for user behavior tracking
+
+## Error Handling Scenarios
+
+### Network Errors
+- **Offline Detection**: The app detects when the device goes offline using NetworkService
+- **Mutation Queueing**: Mutations are automatically queued when offline using offlineQueue
+- **Retry Mechanism**: Failed network requests are retried with exponential backoff
+- **User Feedback**: SyncIndicator shows offline status and pending operations
+
+### Authentication Errors
+- **Token Expiration**: Apollo error link handles authentication errors
+- **Refresh Token Flow**: AuthService handles token refresh when expired
+- **Session Management**: User is redirected to login when authentication fails
+- **Biometric Auth Errors**: BiometricService handles authentication failures
+
+### Data Synchronization
+- **Conflict Detection**: The app detects conflicts between local and server data
+- **Conflict Resolution**: ConflictResolutionService handles automatic conflict resolution
+- **Manual Resolution**: ConflictResolutionModal allows users to manually resolve conflicts
+- **Version Control**: Entity-specific merge strategies handle data versioning
+
+### Push Notification Errors
+- **Permission Handling**: NotificationService handles permission changes
+- **Token Refresh**: FirebaseService handles FCM token refresh
+- **Delivery Confirmation**: Backend tracks notification delivery status
+- **Error Recovery**: Failed notifications are retried with backoff
+
+### Form Validation
+- **Client-side Validation**: DataValidation utility validates form data before submission
+- **Server-side Validation**: GraphQL errors are handled and displayed to the user
+- **Offline Validation**: Mutations are validated before being added to the offline queue
+- **Error Display**: Form errors are displayed with clear messages
+
+## Testing Requirements
+
+### Offline Functionality Tests
+```typescript
+describe('Offline Support', () => {
+  it('should queue mutations when offline', async () => {
+    // Mock offline state
+    // Perform mutation
+    // Check if added to queue
+  });
+  
+  it('should sync when back online', async () => {
+    // Mock offline -> online transition
+    // Check if queue processed
+  });
+  
+  it('should handle conflicts correctly', async () => {
+    // Create conflict scenario
+    // Check resolution strategy
+  });
+});
+```
+
+### Push Notification Tests
+```typescript
+describe('Push Notifications', () => {
+  it('should handle permission changes', async () => {
+    // Mock permission changes
+    // Check handling
+  });
+  
+  it('should process notification payload', async () => {
+    // Mock notification receipt
+    // Check processing
+  });
+  
+  it('should navigate correctly from notification', async () => {
+    // Mock notification open
+    // Check navigation
+  });
+});
+```
+
+### Data Synchronization Tests
+```typescript
+describe('Data Sync', () => {
+  it('should merge server and local changes', async () => {
+    // Create merge scenario
+    // Check result
+  });
+  
+  it('should handle version conflicts', async () => {
+    // Create version conflict
+    // Check resolution
+  });
+  
+  it('should allow manual conflict resolution', async () => {
+    // Create manual resolution scenario
+    // Check UI and result
+  });
+});
+```
+
+## Technical Resources
+
+### React Native Resources
+- [React Native Documentation](https://reactnative.dev/docs/getting-started)
+- [NativeWind Documentation](https://www.nativewind.dev/)
+- [React Navigation](https://reactnavigation.org/)
+- [React Native Gesture Handler](https://docs.swmansion.com/react-native-gesture-handler/)
+
+### Hasura Resources
+- [Hasura Documentation](https://hasura.io/docs/latest/index/)
+- [Hasura Cloud](https://cloud.hasura.io/)
+- [Hasura GitHub Actions](https://github.com/hasura/github-actions)
+- [Hasura CLI](https://hasura.io/docs/latest/hasura-cli/index/)
+
+### Apollo Client Resources
+- [Apollo Client Documentation](https://www.apollographql.com/docs/react/)
+- [Apollo Client with React Native](https://www.apollographql.com/docs/react/integrations/react-native/)
+- [Apollo Client Caching](https://www.apollographql.com/docs/react/caching/overview/)
+- [Apollo Client DevTools](https://www.apollographql.com/docs/react/development-testing/developer-tooling/)

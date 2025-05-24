@@ -61,3 +61,41 @@ export const DELETE_APPLICATION = gql`
     }
   }
 `;
+
+// Update notification read status
+export const UPDATE_NOTIFICATION_READ_STATUS = gql`
+  mutation UpdateNotificationReadStatus($id: uuid!, $read: Boolean!) {
+    update_notifications_by_pk(
+      pk_columns: { id: $id },
+      _set: { read: $read }
+    ) {
+      id
+      read
+    }
+  }
+`;
+
+// Mark all notifications as read
+export const MARK_ALL_NOTIFICATIONS_READ = gql`
+  mutation MarkAllNotificationsRead {
+    update_notifications(
+      where: { read: { _eq: false } },
+      _set: { read: true }
+    ) {
+      affected_rows
+    }
+  }
+`;
+// Update notification preferences
+export const UPDATE_NOTIFICATION_PREFERENCES = gql`
+  mutation UpdateNotificationPreferences($id: uuid!, $enabled: Boolean!) {
+    update_notification_preferences_by_pk(
+      pk_columns: { id: $id },
+      _set: { enabled: $enabled }
+    ) {
+      id
+      enabled
+      updated_at
+    }
+  }
+`;

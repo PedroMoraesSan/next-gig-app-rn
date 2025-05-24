@@ -1,24 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  Modal, 
-  TouchableOpacity, 
-  TextInput, 
-  Platform, 
-  ScrollView,
+import {
+  View,
+  Text,
+  Modal,
+  TouchableOpacity,
+  StyleSheet,
   Alert,
-  ActivityIndicator
+  ActivityIndicator,
+  ScrollView,
+  TextInput
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { calendarService } from '../services/calendarService';
 import Button from './Button';
-import { 
-  addInterviewToCalendar, 
-  checkCalendarPermission, 
-  requestCalendarPermission,
-  showCalendarPermissionAlert,
-  InterviewEvent
-} from '../services/calendarService';
+import { errorTracking } from '../services/errorTracking';
+import { useAnalytics } from '../hooks/useAnalytics';
 
 interface InterviewSchedulerProps {
   visible: boolean;
@@ -26,55 +22,142 @@ interface InterviewSchedulerProps {
   onSchedule: (eventId: string, startDate: Date, endDate: Date) => void;
   jobTitle: string;
   company: string;
-  applicationId?: string;
 }
 
-export default function InterviewScheduler({
+const InterviewScheduler: React.FC<InterviewSchedulerProps> = ({
   visible,
   onClose,
   onSchedule,
   jobTitle,
-  company,
-  applicationId
-}: InterviewSchedulerProps) {
-  const [title, setTitle] = useState(`Interview: ${jobTitle} at ${company}`);
+  company
+}) => {
+  const [startDate, setStartDate] = useState(new Date());
+  const [endDate, setEndDate] = useState(new Date(Date.now() + 60 * 60 * 1000)); // 1 hour later
   const [location, setLocation] = useState('');
   const [notes, setNotes] = useState('');
-  const [startDate, setStartDate] = useState(new Date());
-  const [endDate, setEndDate] = useState(new Date(new Date().getTime() + 60 * 60 * 1000)); // 1 hour later
+  const [loading, setLoading] = useState(false);
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [hasPermission, setHasPermission] = useState(false);
-  const [checkingPermission, setCheckingPermission] = useState(true);
+  const [calendarPermission, setCalendarPermission] = useState<string | null>(null);
+  
+  const analytics = useAnalytics('InterviewScheduler');
   
   // Check calendar permission on mount
   useEffect(() => {
     const checkPermission = async () => {
-      setCheckingPermission(true);
-      const permission = await checkCalendarPermission();
-      setHasPermission(permission);
-      setCheckingPermission(false);
+      const status = await calendarService.checkPermissionStatus();
+      setCalendarPermission(status);
     };
     
     if (visible) {
       checkPermission();
-      // Reset form when modal opens
-      setTitle(`Interview: ${jobTitle} at ${company}`);
-      setLocation('');
-      setNotes('');
-      setStartDate(new Date());
-      setEndDate(new Date(new Date().getTime() + 60 * 60 * 1000));
     }
-  }, [visible, jobTitle, company]);
+  }, [visible]);
   
-  // Request calendar permission
-  const handleRequestPermission = async () => {
-    const granted = await requestCalendarPermission();
-    setHasPermission(granted);
+  // Handle start date change
+  const handleStartDateChange = (event: any, selectedDate?: Date) => {
+    setShowStartDatePicker(false);
     
-    if (!granted) {
-      showCalendarPermissionAlert();
+    if (selectedDate) {
+      setStartDate(selectedDate);
+      
+      // Update end date to be 1 hour after start date
+      const newEndDate = new Date(selectedDate.getTime() + 60 * 60 * 1000);
+      setEndDate(newEndDate);
+    }
+  };
+  
+  // Handle end date change
+  const handleEndDateChange = (event: any, selectedDate?: Date) => {
+    setShowEndDatePicker(false);
+    
+    if (selectedDate) {
+      // Ensure end date is after start date
+      if (selectedDate <= startDate) {
+        Alert.alert('Invalid Time', 'End time must be after start time');
+        return;
+      }
+      
+      setEndDate(selectedDate);
+    }
+  };
+  
+  // Handle request calendar permission
+  const handleRequestPermission = async () => {
+    try {
+      const status = await calendarService.requestCalendarPermission();
+      setCalendarPermission(status);
+      
+      // Track event
+      analytics.trackEvent('calendar_permission_request', {
+        status
+      });
+    } catch (error) {
+      console.error('Error requesting calendar permission:', error);
+      errorTracking.logError(error, {
+        context: 'InterviewScheduler',
+        action: 'handleRequestPermission'
+      });
+    }
+  };
+  
+  // Handle schedule interview
+  const handleScheduleInterview = async () => {
+    try {
+      setLoading(true);
+      
+      // Validate dates
+      if (endDate <= startDate) {
+        Alert.alert('Invalid Time', 'End time must be after start time');
+        return;
+      }
+      
+      // Create calendar event
+      const eventId = await calendarService.createInterviewEvent(
+        jobTitle,
+        company,
+        startDate,
+        endDate,
+        location,
+        notes
+      );
+      
+      if (eventId) {
+        // Call onSchedule callback
+        onSchedule(eventId, startDate, endDate);
+        
+        // Track event
+        analytics.trackEvent('interview_scheduled', {
+          jobTitle,
+          company,
+          startDate: startDate.toISOString(),
+          endDate: endDate.toISOString(),
+          hasLocation: !!location.trim(),
+          hasNotes: !!notes.trim()
+        });
+        
+        // Close modal
+        onClose();
+        
+        // Show success message
+        Alert.alert(
+          'Interview Scheduled',
+          'The interview has been added to your calendar with reminders.'
+        );
+      } else {
+        throw new Error('Failed to create calendar event');
+      }
+    } catch (error) {
+      console.error('Error scheduling interview:', error);
+      errorTracking.logError(error, {
+        context: 'InterviewScheduler',
+        action: 'handleScheduleInterview',
+        jobTitle,
+        company
+      });
+      Alert.alert('Error', 'Failed to schedule interview. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
   
@@ -96,197 +179,140 @@ export default function InterviewScheduler({
     });
   };
   
-  // Handle start date change
-  const onStartDateChange = (event, selectedDate) => {
-    setShowStartDatePicker(Platform.OS === 'ios');
-    if (selectedDate) {
-      setStartDate(selectedDate);
-      
-      // If end date is before start date, update end date
-      if (endDate < selectedDate) {
-        const newEndDate = new Date(selectedDate.getTime() + 60 * 60 * 1000); // 1 hour later
-        setEndDate(newEndDate);
-      }
-    }
-  };
-  
-  // Handle end date change
-  const onEndDateChange = (event, selectedDate) => {
-    setShowEndDatePicker(Platform.OS === 'ios');
-    if (selectedDate) {
-      // Ensure end date is after start date
-      if (selectedDate > startDate) {
-        setEndDate(selectedDate);
-      } else {
-        Alert.alert('Invalid Time', 'End time must be after start time');
-      }
-    }
-  };
-  
-  // Handle schedule interview
-  const handleScheduleInterview = async () => {
-    if (!title.trim()) {
-      Alert.alert('Error', 'Please enter a title for the interview');
-      return;
-    }
-    
-    setLoading(true);
-    try {
-      // Create interview event data
-      const interviewData: InterviewEvent = {
-        title,
-        location,
-        notes,
-        startDate,
-        endDate,
-        company,
-        jobTitle,
-        applicationId
-      };
-      
-      // Add interview to calendar
-      const eventId = await addInterviewToCalendar(interviewData);
-      
-      // Call onSchedule callback
-      onSchedule(eventId, startDate, endDate);
-      
-      // Close modal
-      onClose();
-      
-      // Show success message
-      Alert.alert('Success', 'Interview scheduled and added to your calendar');
-    } catch (error) {
-      console.error('Error scheduling interview:', error);
-      Alert.alert('Error', 'Failed to schedule interview. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-  
   return (
     <Modal
-      animationType="slide"
-      transparent={true}
       visible={visible}
+      transparent={true}
+      animationType="slide"
       onRequestClose={onClose}
     >
-      <View className="flex-1 bg-black bg-opacity-50 justify-end">
-        <View className="bg-white rounded-t-xl max-h-[90%]">
-          <View className="p-4 border-b border-gray-200 flex-row justify-between items-center">
-            <TouchableOpacity onPress={onClose}>
-              <Text className="text-gray-500">Cancel</Text>
-            </TouchableOpacity>
-            <Text className="text-lg font-bold">Schedule Interview</Text>
-            <View style={{ width: 50 }} />
-          </View>
+      <View className="flex-1 bg-black bg-opacity-50 justify-center items-center p-4">
+        <View className="bg-white rounded-lg w-full max-w-md p-6">
+          <Text className="text-2xl font-bold mb-4">Schedule Interview</Text>
           
-          <ScrollView className="p-4">
-            {checkingPermission ? (
-              <ActivityIndicator size="small" color="#0070f3" style={{ marginVertical: 20 }} />
-            ) : !hasPermission ? (
-              <View className="items-center py-4">
-                <Text className="text-center text-gray-600 mb-4">
-                  Calendar access is required to schedule interviews
-                </Text>
-                <Button
-                  title="Grant Calendar Access"
-                  onPress={handleRequestPermission}
-                  fullWidth={true}
+          {calendarPermission === 'denied' ? (
+            <View className="mb-6">
+              <Text className="text-gray-700 mb-4">
+                Calendar access is required to schedule interviews. Please grant calendar permission in your device settings.
+              </Text>
+              <Button
+                title="Request Permission"
+                onPress={handleRequestPermission}
+                fullWidth={true}
+              />
+            </View>
+          ) : (
+            <ScrollView>
+              <View className="mb-4">
+                <Text className="text-gray-700 font-semibold mb-1">Job</Text>
+                <Text className="text-gray-900">{jobTitle}</Text>
+              </View>
+              
+              <View className="mb-4">
+                <Text className="text-gray-700 font-semibold mb-1">Company</Text>
+                <Text className="text-gray-900">{company}</Text>
+              </View>
+              
+              <View className="mb-4">
+                <Text className="text-gray-700 font-semibold mb-1">Date</Text>
+                <TouchableOpacity
+                  className="border border-gray-300 rounded-lg p-3"
+                  onPress={() => setShowStartDatePicker(true)}
+                >
+                  <Text className="text-gray-900">{formatDate(startDate)}</Text>
+                </TouchableOpacity>
+                {showStartDatePicker && (
+                  <DateTimePicker
+                    value={startDate}
+                    mode="date"
+                    display="default"
+                    onChange={handleStartDateChange}
+                    minimumDate={new Date()}
+                  />
+                )}
+              </View>
+              
+              <View className="mb-4">
+                <Text className="text-gray-700 font-semibold mb-1">Start Time</Text>
+                <TouchableOpacity
+                  className="border border-gray-300 rounded-lg p-3"
+                  onPress={() => setShowStartDatePicker(true)}
+                >
+                  <Text className="text-gray-900">{formatTime(startDate)}</Text>
+                </TouchableOpacity>
+                {showStartDatePicker && (
+                  <DateTimePicker
+                    value={startDate}
+                    mode="time"
+                    display="default"
+                    onChange={handleStartDateChange}
+                  />
+                )}
+              </View>
+              
+              <View className="mb-4">
+                <Text className="text-gray-700 font-semibold mb-1">End Time</Text>
+                <TouchableOpacity
+                  className="border border-gray-300 rounded-lg p-3"
+                  onPress={() => setShowEndDatePicker(true)}
+                >
+                  <Text className="text-gray-900">{formatTime(endDate)}</Text>
+                </TouchableOpacity>
+                {showEndDatePicker && (
+                  <DateTimePicker
+                    value={endDate}
+                    mode="time"
+                    display="default"
+                    onChange={handleEndDateChange}
+                    minimumDate={startDate}
+                  />
+                )}
+              </View>
+              
+              <View className="mb-4">
+                <Text className="text-gray-700 font-semibold mb-1">Location (optional)</Text>
+                <TextInput
+                  className="border border-gray-300 rounded-lg p-3"
+                  placeholder="Enter interview location"
+                  value={location}
+                  onChangeText={setLocation}
                 />
               </View>
-            ) : (
-              <>
-                {/* Title */}
-                <View className="mb-4">
-                  <Text className="text-gray-600 mb-2">Title</Text>
-                  <TextInput
-                    className="border border-gray-300 rounded-lg p-3"
-                    value={title}
-                    onChangeText={setTitle}
-                    placeholder="Interview Title"
-                  />
-                </View>
-                
-                {/* Location */}
-                <View className="mb-4">
-                  <Text className="text-gray-600 mb-2">Location (Optional)</Text>
-                  <TextInput
-                    className="border border-gray-300 rounded-lg p-3"
-                    value={location}
-                    onChangeText={setLocation}
-                    placeholder="Office address or video call link"
-                  />
-                </View>
-                
-                {/* Start Date/Time */}
-                <View className="mb-4">
-                  <Text className="text-gray-600 mb-2">Start Date & Time</Text>
-                  <TouchableOpacity
-                    className="border border-gray-300 rounded-lg p-3"
-                    onPress={() => setShowStartDatePicker(true)}
-                  >
-                    <Text>{formatDate(startDate)} at {formatTime(startDate)}</Text>
-                  </TouchableOpacity>
-                  
-                  {showStartDatePicker && (
-                    <DateTimePicker
-                      value={startDate}
-                      mode="datetime"
-                      display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                      onChange={onStartDateChange}
-                      minimumDate={new Date()}
-                    />
-                  )}
-                </View>
-                
-                {/* End Date/Time */}
-                <View className="mb-4">
-                  <Text className="text-gray-600 mb-2">End Date & Time</Text>
-                  <TouchableOpacity
-                    className="border border-gray-300 rounded-lg p-3"
-                    onPress={() => setShowEndDatePicker(true)}
-                  >
-                    <Text>{formatDate(endDate)} at {formatTime(endDate)}</Text>
-                  </TouchableOpacity>
-                  
-                  {showEndDatePicker && (
-                    <DateTimePicker
-                      value={endDate}
-                      mode="datetime"
-                      display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                      onChange={onEndDateChange}
-                      minimumDate={startDate}
-                    />
-                  )}
-                </View>
-                
-                {/* Notes */}
-                <View className="mb-4">
-                  <Text className="text-gray-600 mb-2">Notes (Optional)</Text>
-                  <TextInput
-                    className="border border-gray-300 rounded-lg p-3 min-h-[100px]"
-                    value={notes}
-                    onChangeText={setNotes}
-                    placeholder="Add any notes or preparation details"
-                    multiline
-                    textAlignVertical="top"
-                  />
-                </View>
-              </>
-            )}
-          </ScrollView>
-          
-          <View className="p-4 border-t border-gray-200">
-            <Button
-              title={loading ? "Scheduling..." : "Schedule Interview"}
-              onPress={handleScheduleInterview}
-              disabled={loading || !hasPermission}
-              loading={loading}
-              fullWidth={true}
-            />
-          </View>
+              
+              <View className="mb-6">
+                <Text className="text-gray-700 font-semibold mb-1">Notes (optional)</Text>
+                <TextInput
+                  className="border border-gray-300 rounded-lg p-3"
+                  placeholder="Add any notes or preparation reminders"
+                  value={notes}
+                  onChangeText={setNotes}
+                  multiline
+                  numberOfLines={3}
+                  style={{ height: 80, textAlignVertical: 'top' }}
+                />
+              </View>
+              
+              <View className="flex-row justify-end space-x-3">
+                <Button
+                  title="Cancel"
+                  onPress={onClose}
+                  variant="outline"
+                  fullWidth={false}
+                  disabled={loading}
+                />
+                <Button
+                  title={loading ? "Scheduling..." : "Schedule"}
+                  onPress={handleScheduleInterview}
+                  fullWidth={false}
+                  disabled={loading}
+                />
+              </View>
+            </ScrollView>
+          )}
         </View>
       </View>
     </Modal>
   );
-}
+};
+
+export default InterviewScheduler;

@@ -15,7 +15,12 @@ import { useNavigation } from '@react-navigation/native';
 import JobCard from '../components/JobCard';
 import Button from '../components/Button';
 import { GET_FEATURED_JOBS, GET_RECENT_JOBS, GET_JOBS_BY_LOCATION } from '../graphql/queries/jobs';
+import { SAVE_JOB } from '../graphql/mutations/jobs';
 import { getCurrentLocation, checkLocationServices, showLocationServicesAlert } from '../services/locationService';
+import { useMutationWithOfflineSupport } from '../hooks/useMutationWithOfflineSupport';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
+import { errorTracking } from '../services/errorTracking';
+import { useAnalytics } from '../hooks/useAnalytics';
 
 export default function HomeScreen() {
   const navigation = useNavigation();
@@ -23,6 +28,18 @@ export default function HomeScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
   const [locationLoading, setLocationLoading] = useState(false);
+  
+  // Network status
+  const { isOnline } = useNetworkStatus();
+  
+  // Analytics
+  const analytics = useAnalytics('HomeScreen');
+  
+  // Save job mutation with offline support
+  const [saveJob, { loading: saveLoading }] = useMutationWithOfflineSupport(
+    SAVE_JOB,
+    { entityType: 'savedJob' }
+  );
   
   // Featured jobs query
   const { 
@@ -74,8 +91,18 @@ export default function HomeScreen() {
       // Get current location
       const location = await getCurrentLocation();
       setUserLocation(location);
+      
+      // Track location usage for analytics
+      analytics.trackEvent('location_accessed', {
+        city: location?.city,
+        state: location?.state
+      });
     } catch (error) {
       console.error('Error getting location:', error);
+      errorTracking.logError(error, {
+        context: 'HomeScreen',
+        action: 'getUserLocation'
+      });
     } finally {
       setLocationLoading(false);
     }
@@ -96,8 +123,17 @@ export default function HomeScreen() {
         userLocation?.city ? refetchNearby() : Promise.resolve(),
         getUserLocation()
       ]);
+      
+      // Track refresh action
+      analytics.trackEvent('refresh_home', {
+        hasLocation: !!userLocation?.city
+      });
     } catch (error) {
       console.error('Error refreshing data:', error);
+      errorTracking.logError(error, {
+        context: 'HomeScreen',
+        action: 'onRefresh'
+      });
     } finally {
       setRefreshing(false);
     }
@@ -121,15 +157,47 @@ export default function HomeScreen() {
           };
         }
       });
+      
+      // Track load more action
+      analytics.trackEvent('load_more_jobs', {
+        currentCount: recentData.jobs.length
+      });
     } catch (error) {
       console.error('Error loading more jobs:', error);
+      errorTracking.logError(error, {
+        context: 'HomeScreen',
+        action: 'loadMoreJobs'
+      });
     } finally {
       setLoadingMore(false);
     }
   };
+  
+  // Handle save job
+  const handleSaveJob = async (jobId, jobTitle, company) => {
+    try {
+      await saveJob({ 
+        variables: { jobId }
+      });
+      
+      // Track job save
+      analytics.trackJobSave(jobId, jobTitle, company);
+    } catch (error) {
+      // Don't show error if it's just queued for offline
+      if (!error.message?.includes('Mutation queued for offline execution')) {
+        console.error('Error saving job:', error);
+        errorTracking.logError(error, {
+          context: 'HomeScreen',
+          action: 'handleSaveJob',
+          jobId
+        });
+        Alert.alert('Error', 'Failed to save job. Please try again.');
+      }
+    }
+  };
 
-  // Use mock data if API isn't available yet
-  const useMockData = featuredError || recentError || nearbyError;
+  // Use mock data if API isn't available yet or offline
+  const useMockData = featuredError || recentError || nearbyError || !isOnline;
   const { mockJobs } = require('../constants/mockData');
 
   // Format jobs data
@@ -178,10 +246,7 @@ export default function HomeScreen() {
                     <JobCard 
                       key={job.id} 
                       job={job} 
-                      onSave={() => {
-                        // Handle save job functionality
-                        console.log('Save job:', job.id);
-                      }}
+                      onSave={() => handleSaveJob(job.id, job.title, job.company)}
                     />
                   ))
                 ) : (
@@ -208,10 +273,7 @@ export default function HomeScreen() {
                   <JobCard 
                     key={job.id} 
                     job={job} 
-                    onSave={() => {
-                      // Handle save job functionality
-                      console.log('Save job:', job.id);
-                    }}
+                    onSave={() => handleSaveJob(job.id, job.title, job.company)}
                   />
                 ))
               ) : (
@@ -229,10 +291,7 @@ export default function HomeScreen() {
         renderItem={({ item }) => (
           <JobCard 
             job={item} 
-            onSave={() => {
-              // Handle save job functionality
-              console.log('Save job:', item.id);
-            }}
+            onSave={() => handleSaveJob(item.id, item.title, item.company)}
           />
         )}
         keyExtractor={(item) => item.id}

@@ -18,6 +18,8 @@ import { useAuth } from '../context/AuthContext';
 import { biometricService } from '../services/biometricService';
 import { useAnalytics } from '../hooks/useAnalytics';
 import { EventType } from '../services/analytics';
+import { errorTracking } from '../services/errorTracking';
+import { validateData } from '../utils/dataValidation';
 
 type LoginScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Login'>;
 
@@ -63,8 +65,21 @@ export default function LoginScreen() {
   
   // Handle standard login
   const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert('Error', 'Please enter both email and password');
+    // Validate inputs
+    const validationRules = {
+      required: ['email', 'password'],
+      format: {
+        email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+      },
+      minLength: {
+        password: 6
+      }
+    };
+    
+    const validationResult = validateData({ email, password }, validationRules);
+    
+    if (!validationResult.isValid) {
+      Alert.alert('Validation Error', Object.values(validationResult.errors)[0]);
       return;
     }
     
@@ -78,6 +93,11 @@ export default function LoginScreen() {
       });
     } catch (error) {
       console.error('Login error:', error);
+      errorTracking.logError(error, {
+        context: 'LoginScreen',
+        action: 'handleLogin',
+        email: email.length > 0 ? `${email.substring(0, 3)}...` : 'empty'
+      });
       Alert.alert('Login Failed', 'Invalid email or password');
       
       // Track error
@@ -110,6 +130,16 @@ export default function LoginScreen() {
       }
     } catch (error) {
       console.error('Biometric login error:', error);
+      errorTracking.logError(error, {
+        context: 'LoginScreen',
+        action: 'handleBiometricLogin',
+        biometricType
+      });
+      
+      // Only show alert for non-cancellation errors
+      if (!error.message?.includes('User canceled')) {
+        Alert.alert('Biometric Authentication Failed', 'Please try again or use email and password');
+      }
       
       // Track error
       analytics.trackError('biometric_login_failed', {

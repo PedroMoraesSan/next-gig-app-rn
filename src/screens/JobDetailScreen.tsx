@@ -21,6 +21,9 @@ import { SAVE_JOB, UNSAVE_JOB } from '../graphql/mutations/jobs';
 import { CHECK_JOB_SAVED } from '../graphql/queries/user';
 import { useAuth } from '../context/AuthContext';
 import { useAnalytics } from '../hooks/useAnalytics';
+import { useMutationWithOfflineSupport } from '../hooks/useMutationWithOfflineSupport';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
+import { errorTracking } from '../services/errorTracking';
 
 type JobDetailScreenRouteProp = RouteProp<RootStackParamList, 'JobDetail'>;
 
@@ -31,6 +34,9 @@ export default function JobDetailScreen() {
   const { isAuthenticated } = useAuth();
   const [isSaved, setIsSaved] = useState(false);
   const [showInterviewModal, setShowInterviewModal] = useState(false);
+  
+  // Network status
+  const { isOnline } = useNetworkStatus();
   
   // Analytics hook
   const analytics = useAnalytics('JobDetail', { jobId });
@@ -46,11 +52,17 @@ export default function JobDetailScreen() {
     skip: !isAuthenticated
   });
   
-  // Save job mutation
-  const [saveJob, { loading: saveLoading }] = useMutation(SAVE_JOB);
+  // Save job mutation with offline support
+  const [saveJob, { loading: saveLoading }] = useMutationWithOfflineSupport(
+    SAVE_JOB,
+    { entityType: 'savedJob' }
+  );
   
-  // Unsave job mutation
-  const [unsaveJob, { loading: unsaveLoading }] = useMutation(UNSAVE_JOB);
+  // Unsave job mutation with offline support
+  const [unsaveJob, { loading: unsaveLoading }] = useMutationWithOfflineSupport(
+    UNSAVE_JOB,
+    { entityType: 'savedJob' }
+  );
   
   // Update saved status when data changes
   useEffect(() => {
@@ -102,8 +114,16 @@ export default function JobDetailScreen() {
         }
       }
     } catch (error) {
-      console.error('Error toggling job save:', error);
-      Alert.alert('Error', 'Failed to update saved status');
+      // Don't show error if it's just queued for offline
+      if (!error.message?.includes('Mutation queued for offline execution')) {
+        console.error('Error toggling job save:', error);
+        errorTracking.logError(error, {
+          context: 'JobDetailScreen',
+          action: 'handleToggleSave',
+          jobId
+        });
+        Alert.alert('Error', 'Failed to update saved status');
+      }
     }
   };
   
@@ -121,6 +141,15 @@ export default function JobDetailScreen() {
       return;
     }
     
+    if (!isOnline) {
+      Alert.alert(
+        'Offline Mode',
+        'You need to be online to apply for jobs. Please try again when you have an internet connection.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    
     navigation.navigate('Apply', { jobId });
     
     // Track job application
@@ -134,15 +163,57 @@ export default function JobDetailScreen() {
   const handleShare = async () => {
     if (data && data.jobs_by_pk) {
       const job = data.jobs_by_pk;
-      try {
-        await Share.share({
-          title: `${job.title} at ${job.company}`,
-          message: `Check out this job: ${job.title} at ${job.company}. ${job.location}`,
-          // In a real app, you would include a deep link URL here
-        });
-      } catch (error) {
-        console.error('Error sharing job:', error);
-      }
+      
+      // Show share options
+      Alert.alert(
+        'Share Job',
+        'How would you like to share this job?',
+        [
+          { 
+            text: 'Share with Contacts', 
+            onPress: () => navigation.navigate('ContactSharing', {
+              jobId: job.id,
+              jobTitle: job.title,
+              company: job.company
+            })
+          },
+          { 
+            text: 'Share via...',
+            onPress: async () => {
+              try {
+                await Share.share({
+                  title: `${job.title} at ${job.company}`,
+                  message: `Check out this job: ${job.title} at ${job.company}. ${job.location}`,
+                  // In a real app, you would include a deep link URL here
+                });
+                
+                // Track share event
+                analytics.trackEvent('job_share', {
+                  jobId: job.id,
+                  jobTitle: job.title,
+                  company: job.company,
+                  method: 'system'
+                });
+              } catch (error) {
+                console.error('Error sharing job:', error);
+                errorTracking.logError(error, {
+                  context: 'JobDetailScreen',
+                  action: 'handleShare',
+                  jobId
+                });
+              }
+            }
+          },
+          { text: 'Cancel', style: 'cancel' }
+        ]
+      );
+      
+      // Track event
+      analytics.trackEvent('share_options_shown', {
+        jobId: job.id,
+        jobTitle: job.title,
+        company: job.company
+      });
     }
   };
   

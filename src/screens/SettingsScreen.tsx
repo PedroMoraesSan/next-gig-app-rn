@@ -1,305 +1,423 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  ScrollView, 
-  SafeAreaView, 
-  Switch, 
-  TouchableOpacity, 
+import {
+  View,
+  Text,
+  StyleSheet,
+  Switch,
+  TouchableOpacity,
   Alert,
   ActivityIndicator,
-  Platform
+  SafeAreaView,
+  ScrollView,
+  Linking
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import Button from '../components/Button';
 import { useAuth } from '../context/AuthContext';
+import Button from '../components/Button';
 import { biometricService } from '../services/biometricService';
+import { pushNotificationService } from '../services/pushNotificationService';
+import { errorTracking } from '../services/errorTracking';
 import { useAnalytics } from '../hooks/useAnalytics';
-import { EventType } from '../services/analytics';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { offlineQueue } from '../services/offlineQueue';
+import { useSyncStatus } from '../context/SyncContext';
 
-export default function SettingsScreen() {
-  const { isAuthenticated, user, signOut, setupBiometrics, disableBiometrics } = useAuth();
-  const navigation = useNavigation();
-  const analytics = useAnalytics('Settings');
-  
+const SettingsScreen = () => {
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [biometricsAvailable, setBiometricsAvailable] = useState(false);
   const [biometricsEnabled, setBiometricsEnabled] = useState(false);
-  const [biometricType, setBiometricType] = useState('Biometrics');
-  const [loading, setLoading] = useState(false);
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [emailNotificationsEnabled, setEmailNotificationsEnabled] = useState(true);
+  const [analyticsEnabled, setAnalyticsEnabled] = useState(true);
   const [darkModeEnabled, setDarkModeEnabled] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [appVersion, setAppVersion] = useState('1.0.0');
   
-  // Check biometrics availability on mount
+  const navigation = useNavigation();
+  const { user, signOut } = useAuth();
+  const { hasPendingOperations, forceSync } = useSyncStatus();
+  const analytics = useAnalytics('Settings');
+  
+  // Load settings on mount
   useEffect(() => {
-    const checkBiometrics = async () => {
+    const loadSettings = async () => {
       try {
-        const available = await biometricService.isBiometricsAvailable();
-        setBiometricsAvailable(available);
+        // Check biometrics
+        const biometricsAvailable = await biometricService.isBiometricsAvailable();
+        setBiometricsAvailable(biometricsAvailable);
         
-        if (available) {
-          const enabled = await biometricService.isBiometricEnabled();
-          setBiometricsEnabled(enabled);
-          
-          const type = await biometricService.getBiometricType();
-          setBiometricType(type);
+        if (biometricsAvailable) {
+          const biometricsEnabled = await biometricService.isBiometricEnabled();
+          setBiometricsEnabled(biometricsEnabled);
         }
+        
+        // Check notifications
+        const notificationsEnabled = await AsyncStorage.getItem('notifications_enabled');
+        setNotificationsEnabled(notificationsEnabled === 'true');
+        
+        // Check analytics
+        const analyticsEnabled = await AsyncStorage.getItem('analytics_enabled');
+        setAnalyticsEnabled(analyticsEnabled !== 'false'); // Default to true
+        
+        // Check theme
+        const darkMode = await AsyncStorage.getItem('dark_mode');
+        setDarkModeEnabled(darkMode === 'true');
+        
+        // Get app version
+        // In a real app, you would use a package like react-native-device-info
+        setAppVersion('1.0.0');
       } catch (error) {
-        console.error('Error checking biometrics:', error);
+        console.error('Error loading settings:', error);
+        errorTracking.logError(error, {
+          context: 'SettingsScreen',
+          action: 'loadSettings'
+        });
       }
     };
     
-    checkBiometrics();
+    loadSettings();
   }, []);
   
-  // Handle biometrics toggle
-  const handleBiometricsToggle = async (value: boolean) => {
-    setLoading(true);
+  // Handle toggle notifications
+  const handleToggleNotifications = async (value: boolean) => {
     try {
+      setLoading(true);
+      
       if (value) {
-        // Enable biometrics
-        const success = await setupBiometrics();
-        if (success) {
-          setBiometricsEnabled(true);
+        // Request notification permissions
+        const granted = await pushNotificationService.requestPermission();
+        if (granted) {
+          setNotificationsEnabled(true);
+          await AsyncStorage.setItem('notifications_enabled', 'true');
           
           // Track event
-          analytics.trackEvent('Enable_Biometrics', {
-            biometricType
-          });
+          analytics.trackEvent('notifications_enabled');
+        } else {
+          setNotificationsEnabled(false);
+          await AsyncStorage.setItem('notifications_enabled', 'false');
+          
+          // Show settings prompt
+          pushNotificationService.showPermissionDeniedAlert();
         }
       } else {
-        // Disable biometrics
-        const success = await disableBiometrics();
-        if (success) {
-          setBiometricsEnabled(false);
-          
-          // Track event
-          analytics.trackEvent('Disable_Biometrics', {
-            biometricType
-          });
-        }
+        // Disable notifications
+        setNotificationsEnabled(false);
+        await AsyncStorage.setItem('notifications_enabled', 'false');
+        
+        // Track event
+        analytics.trackEvent('notifications_disabled');
       }
     } catch (error) {
-      console.error('Error toggling biometrics:', error);
-      Alert.alert('Error', 'Failed to update biometric settings');
+      console.error('Error toggling notifications:', error);
+      errorTracking.logError(error, {
+        context: 'SettingsScreen',
+        action: 'handleToggleNotifications',
+        targetState: value
+      });
     } finally {
       setLoading(false);
+    }
+  };
+  
+  // Handle toggle analytics
+  const handleToggleAnalytics = async (value: boolean) => {
+    try {
+      setAnalyticsEnabled(value);
+      await AsyncStorage.setItem('analytics_enabled', value.toString());
+      
+      // In a real app, you would update analytics settings
+      // analytics.setEnabled(value);
+      
+      // Track event (only if enabling or still enabled)
+      if (value) {
+        analytics.trackEvent('analytics_setting_changed', {
+          enabled: value
+        });
+      }
+    } catch (error) {
+      console.error('Error toggling analytics:', error);
+      errorTracking.logError(error, {
+        context: 'SettingsScreen',
+        action: 'handleToggleAnalytics',
+        targetState: value
+      });
+    }
+  };
+  
+  // Handle toggle dark mode
+  const handleToggleDarkMode = async (value: boolean) => {
+    try {
+      setDarkModeEnabled(value);
+      await AsyncStorage.setItem('dark_mode', value.toString());
+      
+      // In a real app, you would update theme
+      // themeService.setDarkMode(value);
+      
+      // Track event
+      analytics.trackEvent('theme_changed', {
+        darkMode: value
+      });
+    } catch (error) {
+      console.error('Error toggling dark mode:', error);
+      errorTracking.logError(error, {
+        context: 'SettingsScreen',
+        action: 'handleToggleDarkMode',
+        targetState: value
+      });
     }
   };
   
   // Handle sign out
   const handleSignOut = async () => {
     try {
+      // Check for pending operations
+      if (hasPendingOperations) {
+        Alert.alert(
+          'Pending Changes',
+          'You have pending changes that have not been synced. Signing out now may result in data loss.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { 
+              text: 'Sync Now', 
+              onPress: () => forceSync() 
+            },
+            { 
+              text: 'Sign Out Anyway', 
+              style: 'destructive',
+              onPress: () => signOut() 
+            }
+          ]
+        );
+        return;
+      }
+      
+      // Sign out
       await signOut();
       
       // Track event
-      analytics.trackEvent(EventType.LOGOUT);
+      analytics.trackEvent('sign_out');
     } catch (error) {
       console.error('Error signing out:', error);
+      errorTracking.logError(error, {
+        context: 'SettingsScreen',
+        action: 'handleSignOut'
+      });
       Alert.alert('Error', 'Failed to sign out. Please try again.');
     }
   };
   
-  // Handle notifications toggle
-  const handleNotificationsToggle = (value: boolean) => {
-    setNotificationsEnabled(value);
-    
-    // Track event
-    analytics.trackEvent('Toggle_Notifications', {
-      enabled: value
-    });
+  // Handle clear cache
+  const handleClearCache = async () => {
+    try {
+      setLoading(true);
+      
+      // Clear Apollo cache
+      // In a real app, you would clear the Apollo cache
+      // client.clearStore();
+      
+      // Clear offline queue
+      await offlineQueue.clearQueue();
+      
+      // Clear other caches
+      // await AsyncStorage.multiRemove(['cache_key_1', 'cache_key_2']);
+      
+      // Track event
+      analytics.trackEvent('cache_cleared');
+      
+      Alert.alert('Success', 'Cache cleared successfully');
+    } catch (error) {
+      console.error('Error clearing cache:', error);
+      errorTracking.logError(error, {
+        context: 'SettingsScreen',
+        action: 'handleClearCache'
+      });
+      Alert.alert('Error', 'Failed to clear cache');
+    } finally {
+      setLoading(false);
+    }
   };
   
-  // Handle email notifications toggle
-  const handleEmailNotificationsToggle = (value: boolean) => {
-    setEmailNotificationsEnabled(value);
-    
-    // Track event
-    analytics.trackEvent('Toggle_Email_Notifications', {
-      enabled: value
-    });
+  // Handle navigation to biometric setup
+  const handleNavigateToBiometricSetup = () => {
+    navigation.navigate('BiometricSetup' as never);
   };
   
-  // Handle dark mode toggle
-  const handleDarkModeToggle = (value: boolean) => {
-    setDarkModeEnabled(value);
-    
-    // Track event
-    analytics.trackEvent('Toggle_Dark_Mode', {
-      enabled: value
-    });
-    
-    // In a real app, you would update the app's theme here
-    Alert.alert('Coming Soon', 'Dark mode will be available in a future update.');
+  // Handle navigation to notification preferences
+  const handleNavigateToNotificationPreferences = () => {
+    navigation.navigate('NotificationPreferences' as never);
   };
-  
-  if (!isAuthenticated) {
-    return (
-      <SafeAreaView className="flex-1 bg-gray-50 justify-center items-center p-4">
-        <Text className="text-xl font-bold mb-4">Sign in to access settings</Text>
-        <Text className="text-gray-600 text-center mb-6">
-          Create an account or sign in to manage your settings.
-        </Text>
-        <Button 
-          title="Sign In" 
-          onPress={() => navigation.navigate('Login' as never)} 
-          fullWidth={true}
-        />
-      </SafeAreaView>
-    );
-  }
   
   return (
     <SafeAreaView className="flex-1 bg-gray-50">
       <ScrollView className="flex-1">
         <View className="p-4">
-          <Text className="text-2xl font-bold text-gray-900">Settings</Text>
-          <Text className="text-gray-600 mt-1 mb-4">Manage your account preferences</Text>
+          <Text className="text-2xl font-bold mb-6">Settings</Text>
           
           {/* Account Section */}
-          <View className="bg-white p-4 rounded-lg border border-gray-200 mb-4">
-            <Text className="text-lg font-semibold mb-3">Account</Text>
+          <View className="bg-white p-4 rounded-lg border border-gray-200 mb-6">
+            <Text className="text-lg font-semibold mb-4">Account</Text>
             
-            <TouchableOpacity 
-              className="flex-row justify-between items-center py-3 border-b border-gray-100"
-              onPress={() => navigation.navigate('Profile' as never)}
-            >
-              <Text className="text-gray-800">Edit Profile</Text>
-              <Text className="text-gray-400">›</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              className="flex-row justify-between items-center py-3 border-b border-gray-100"
-              onPress={() => navigation.navigate('ResumeBuilder' as never)}
-            >
-              <Text className="text-gray-800">Resume Builder</Text>
-              <Text className="text-gray-400">›</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              className="flex-row justify-between items-center py-3"
-              onPress={() => navigation.navigate('JobAlerts' as never)}
-            >
-              <Text className="text-gray-800">Job Alerts</Text>
-              <Text className="text-gray-400">›</Text>
-            </TouchableOpacity>
-          </View>
-          
-          {/* Security Section */}
-          <View className="bg-white p-4 rounded-lg border border-gray-200 mb-4">
-            <Text className="text-lg font-semibold mb-3">Security</Text>
-            
-            <TouchableOpacity 
-              className="flex-row justify-between items-center py-3 border-b border-gray-100"
-            >
-              <Text className="text-gray-800">Change Password</Text>
-              <Text className="text-gray-400">›</Text>
-            </TouchableOpacity>
-            
-            {biometricsAvailable && (
-              <View className="flex-row justify-between items-center py-3">
-                <View>
-                  <Text className="text-gray-800">{biometricType} Login</Text>
-                  <Text className="text-gray-500 text-sm">Use {biometricType} to sign in</Text>
-                </View>
-                {loading ? (
-                  <ActivityIndicator size="small" color="#0070f3" />
-                ) : (
-                  <Switch
-                    value={biometricsEnabled}
-                    onValueChange={handleBiometricsToggle}
-                    trackColor={{ false: '#d1d5db', true: '#0070f3' }}
-                    thumbColor={Platform.OS === 'ios' ? '#ffffff' : biometricsEnabled ? '#ffffff' : '#f4f3f4'}
-                  />
-                )}
+            {user ? (
+              <View className="mb-4">
+                <Text className="text-gray-600">{user.name}</Text>
+                <Text className="text-gray-600">{user.email}</Text>
               </View>
+            ) : (
+              <View className="mb-4">
+                <Text className="text-gray-600">Not signed in</Text>
+              </View>
+            )}
+            
+            {user ? (
+              <Button
+                title="Sign Out"
+                onPress={handleSignOut}
+                variant="outline"
+                fullWidth={true}
+              />
+            ) : (
+              <Button
+                title="Sign In"
+                onPress={() => navigation.navigate('Login' as never)}
+                fullWidth={true}
+              />
             )}
           </View>
           
-          {/* Notifications Section */}
-          <View className="bg-white p-4 rounded-lg border border-gray-200 mb-4">
-            <Text className="text-lg font-semibold mb-3">Notifications</Text>
+          {/* Preferences Section */}
+          <View className="bg-white p-4 rounded-lg border border-gray-200 mb-6">
+            <Text className="text-lg font-semibold mb-4">Preferences</Text>
             
-            <View className="flex-row justify-between items-center py-3 border-b border-gray-100">
+            {/* Notifications */}
+            <TouchableOpacity 
+              className="flex-row justify-between items-center py-3 border-b border-gray-200"
+              onPress={handleNavigateToNotificationPreferences}
+              disabled={!user}
+            >
               <View>
-                <Text className="text-gray-800">Push Notifications</Text>
-                <Text className="text-gray-500 text-sm">Receive alerts on your device</Text>
+                <Text className="text-base">Notifications</Text>
+                <Text className="text-sm text-gray-500">
+                  {notificationsEnabled ? 'Enabled' : 'Disabled'}
+                </Text>
               </View>
               <Switch
                 value={notificationsEnabled}
-                onValueChange={handleNotificationsToggle}
-                trackColor={{ false: '#d1d5db', true: '#0070f3' }}
-                thumbColor={Platform.OS === 'ios' ? '#ffffff' : notificationsEnabled ? '#ffffff' : '#f4f3f4'}
+                onValueChange={handleToggleNotifications}
+                disabled={loading || !user}
               />
-            </View>
+            </TouchableOpacity>
             
-            <View className="flex-row justify-between items-center py-3">
-              <View>
-                <Text className="text-gray-800">Email Notifications</Text>
-                <Text className="text-gray-500 text-sm">Receive alerts via email</Text>
-              </View>
-              <Switch
-                value={emailNotificationsEnabled}
-                onValueChange={handleEmailNotificationsToggle}
-                trackColor={{ false: '#d1d5db', true: '#0070f3' }}
-                thumbColor={Platform.OS === 'ios' ? '#ffffff' : emailNotificationsEnabled ? '#ffffff' : '#f4f3f4'}
-              />
-            </View>
-          </View>
-          
-          {/* Appearance Section */}
-          <View className="bg-white p-4 rounded-lg border border-gray-200 mb-4">
-            <Text className="text-lg font-semibold mb-3">Appearance</Text>
+            {/* Biometric Authentication */}
+            {biometricsAvailable && (
+              <TouchableOpacity 
+                className="flex-row justify-between items-center py-3 border-b border-gray-200"
+                onPress={handleNavigateToBiometricSetup}
+                disabled={!user}
+              >
+                <View>
+                  <Text className="text-base">Biometric Authentication</Text>
+                  <Text className="text-sm text-gray-500">
+                    {biometricsEnabled ? 'Enabled' : 'Disabled'}
+                  </Text>
+                </View>
+                <Text className="text-2xl">
+                  {biometricsEnabled ? '✓' : '→'}
+                </Text>
+              </TouchableOpacity>
+            )}
             
-            <View className="flex-row justify-between items-center py-3">
+            {/* Dark Mode */}
+            <View className="flex-row justify-between items-center py-3 border-b border-gray-200">
               <View>
-                <Text className="text-gray-800">Dark Mode</Text>
-                <Text className="text-gray-500 text-sm">Use dark theme</Text>
+                <Text className="text-base">Dark Mode</Text>
+                <Text className="text-sm text-gray-500">
+                  {darkModeEnabled ? 'Enabled' : 'Disabled'}
+                </Text>
               </View>
               <Switch
                 value={darkModeEnabled}
-                onValueChange={handleDarkModeToggle}
-                trackColor={{ false: '#d1d5db', true: '#0070f3' }}
-                thumbColor={Platform.OS === 'ios' ? '#ffffff' : darkModeEnabled ? '#ffffff' : '#f4f3f4'}
+                onValueChange={handleToggleDarkMode}
+              />
+            </View>
+            
+            {/* Analytics */}
+            <View className="flex-row justify-between items-center py-3">
+              <View>
+                <Text className="text-base">Analytics</Text>
+                <Text className="text-sm text-gray-500">
+                  Help us improve by sharing usage data
+                </Text>
+              </View>
+              <Switch
+                value={analyticsEnabled}
+                onValueChange={handleToggleAnalytics}
               />
             </View>
           </View>
           
-          {/* About Section */}
-          <View className="bg-white p-4 rounded-lg border border-gray-200 mb-4">
-            <Text className="text-lg font-semibold mb-3">About</Text>
+          {/* Data & Storage Section */}
+          <View className="bg-white p-4 rounded-lg border border-gray-200 mb-6">
+            <Text className="text-lg font-semibold mb-4">Data & Storage</Text>
             
+            {/* Clear Cache */}
             <TouchableOpacity 
-              className="flex-row justify-between items-center py-3 border-b border-gray-100"
+              className="flex-row justify-between items-center py-3 border-b border-gray-200"
+              onPress={handleClearCache}
+              disabled={loading}
             >
-              <Text className="text-gray-800">Privacy Policy</Text>
-              <Text className="text-gray-400">›</Text>
+              <Text className="text-base">Clear Cache</Text>
+              {loading ? (
+                <ActivityIndicator size="small" color="#0070f3" />
+              ) : (
+                <Text className="text-2xl">→</Text>
+              )}
             </TouchableOpacity>
             
+            {/* Offline Data */}
             <TouchableOpacity 
-              className="flex-row justify-between items-center py-3 border-b border-gray-100"
+              className="flex-row justify-between items-center py-3"
+              onPress={() => navigation.navigate('OfflineData' as never)}
             >
-              <Text className="text-gray-800">Terms of Service</Text>
-              <Text className="text-gray-400">›</Text>
+              <View>
+                <Text className="text-base">Offline Data</Text>
+                <Text className="text-sm text-gray-500">
+                  {hasPendingOperations ? 'Pending changes available' : 'All changes synced'}
+                </Text>
+              </View>
+              <Text className="text-2xl">→</Text>
             </TouchableOpacity>
-            
-            <View className="py-3">
-              <Text className="text-gray-800">Version</Text>
-              <Text className="text-gray-500 text-sm">1.0.0</Text>
-            </View>
           </View>
           
-          {/* Sign Out Button */}
-          <View className="mt-4 mb-6">
-            <Button 
-              title="Sign Out" 
-              onPress={handleSignOut} 
-              variant="outline"
-              fullWidth={true}
-            />
+          {/* About Section */}
+          <View className="bg-white p-4 rounded-lg border border-gray-200 mb-6">
+            <Text className="text-lg font-semibold mb-4">About</Text>
+            
+            {/* Version */}
+            <View className="flex-row justify-between items-center py-3 border-b border-gray-200">
+              <Text className="text-base">Version</Text>
+              <Text className="text-gray-500">{appVersion}</Text>
+            </View>
+            
+            {/* Privacy Policy */}
+            <TouchableOpacity 
+              className="flex-row justify-between items-center py-3 border-b border-gray-200"
+              onPress={() => Linking.openURL('https://example.com/privacy')}
+            >
+              <Text className="text-base">Privacy Policy</Text>
+              <Text className="text-2xl">→</Text>
+            </TouchableOpacity>
+            
+            {/* Terms of Service */}
+            <TouchableOpacity 
+              className="flex-row justify-between items-center py-3"
+              onPress={() => Linking.openURL('https://example.com/terms')}
+            >
+              <Text className="text-base">Terms of Service</Text>
+              <Text className="text-2xl">→</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </ScrollView>
     </SafeAreaView>
   );
-}
+};
+
+export default SettingsScreen;

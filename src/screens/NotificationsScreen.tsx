@@ -3,184 +3,149 @@ import {
   View, 
   Text, 
   FlatList, 
-  SafeAreaView, 
   TouchableOpacity, 
   ActivityIndicator,
   RefreshControl,
-  Alert
+  SafeAreaView
 } from 'react-native';
+import { useMutation } from '@apollo/client';
 import { useNavigation } from '@react-navigation/native';
 import { useNotifications } from '../hooks/useNotifications';
-import Button from '../components/Button';
+import { formatDistanceToNow } from '../utils/dateUtils';
+import { NotificationType } from '../services/pushNotificationService';
+import { UPDATE_NOTIFICATION_READ_STATUS } from '../graphql/mutations/user';
+import { useAuth } from '../context/AuthContext';
 
 export default function NotificationsScreen() {
+  const { isAuthenticated } = useAuth();
   const navigation = useNavigation();
   const [refreshing, setRefreshing] = useState(false);
   
+  // Get notifications
   const { 
     notifications, 
     loading, 
-    markAsRead, 
-    markAllAsRead, 
-    deleteNotification, 
-    clearNotifications 
+    error, 
+    loadMoreNotifications, 
+    refreshNotifications 
   } = useNotifications();
+  
+  // Update notification read status mutation
+  const [updateNotificationReadStatus] = useMutation(UPDATE_NOTIFICATION_READ_STATUS);
+  
+  // Handle notification press
+  const handleNotificationPress = async (notification: any) => {
+    try {
+      // Mark notification as read
+      if (!notification.read) {
+        await updateNotificationReadStatus({
+          variables: {
+            id: notification.id,
+            read: true
+          }
+        });
+      }
+      
+      // Navigate based on notification type
+      switch (notification.type) {
+        case NotificationType.JOB_ALERT:
+          if (notification.data?.jobId) {
+            navigation.navigate('JobDetail' as never, { jobId: notification.data.jobId } as never);
+          } else {
+            navigation.navigate('Search' as never);
+          }
+          break;
+        case NotificationType.APPLICATION_UPDATE:
+          if (notification.data?.applicationId) {
+            navigation.navigate('Application' as never, { applicationId: notification.data.applicationId } as never);
+          } else {
+            navigation.navigate('Profile' as never);
+          }
+          break;
+        case NotificationType.MESSAGE:
+          // Navigate to messages screen (not implemented yet)
+          break;
+        default:
+          // Do nothing for system notifications
+          break;
+      }
+    } catch (error) {
+      console.error('Error handling notification press:', error);
+    }
+  };
   
   // Handle refresh
   const onRefresh = async () => {
     setRefreshing(true);
-    // In a real app, you would fetch new notifications from the server
-    setTimeout(() => {
+    try {
+      await refreshNotifications();
+    } catch (error) {
+      console.error('Error refreshing notifications:', error);
+    } finally {
       setRefreshing(false);
-    }, 1000);
-  };
-  
-  // Handle notification press
-  const handleNotificationPress = async (notification) => {
-    // Mark as read
-    await markAsRead(notification.id);
-    
-    // Navigate based on notification type
-    switch (notification.type) {
-      case 'job_alert':
-        navigation.navigate('JobDetail', { jobId: notification.data.jobId });
-        break;
-      case 'application_update':
-        // Navigate to application details
-        // This would typically go to a specific application screen
-        navigation.navigate('Profile');
-        break;
-      case 'message':
-        // Navigate to messages
-        break;
-      case 'system':
-        // System notifications don't navigate anywhere
-        break;
     }
   };
   
-  // Handle clear all
-  const handleClearAll = () => {
-    Alert.alert(
-      'Clear All Notifications',
-      'Are you sure you want to clear all notifications?',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel'
-        },
-        {
-          text: 'Clear All',
-          style: 'destructive',
-          onPress: clearNotifications
-        }
-      ]
+  // Render notification item
+  const renderNotificationItem = ({ item }: { item: any }) => {
+    return (
+      <TouchableOpacity
+        className={`p-4 border-b border-gray-200 ${item.read ? 'bg-white' : 'bg-blue-50'}`}
+        onPress={() => handleNotificationPress(item)}
+      >
+        <View className="flex-row justify-between">
+          <Text className="font-bold text-base">{item.title}</Text>
+          <Text className="text-xs text-gray-500">
+            {formatDistanceToNow(new Date(item.created_at))}
+          </Text>
+        </View>
+        <Text className="text-gray-700 mt-1">{item.body}</Text>
+      </TouchableOpacity>
     );
   };
   
-  // Format date
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.round(diffMs / 60000);
-    const diffHours = Math.round(diffMs / 3600000);
-    const diffDays = Math.round(diffMs / 86400000);
-    
-    if (diffMins < 60) {
-      return `${diffMins} min${diffMins !== 1 ? 's' : ''} ago`;
-    } else if (diffHours < 24) {
-      return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
-    } else if (diffDays < 7) {
-      return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
-    } else {
-      return date.toLocaleDateString();
-    }
-  };
-  
-  // Get notification icon
-  const getNotificationIcon = (type) => {
-    switch (type) {
-      case 'job_alert':
-        return '🔍';
-      case 'application_update':
-        return '📝';
-      case 'message':
-        return '💬';
-      case 'system':
-        return '🔔';
-      default:
-        return '📌';
-    }
-  };
+  if (!isAuthenticated) {
+    return (
+      <SafeAreaView className="flex-1 bg-gray-50 justify-center items-center p-4">
+        <Text className="text-xl font-bold text-center mb-4">Sign In Required</Text>
+        <Text className="text-gray-600 text-center mb-6">
+          Please sign in to view your notifications.
+        </Text>
+      </SafeAreaView>
+    );
+  }
   
   return (
     <SafeAreaView className="flex-1 bg-gray-50">
-      <View className="p-4 flex-row justify-between items-center border-b border-gray-200">
-        <Text className="text-2xl font-bold text-gray-900">Notifications</Text>
-        {notifications.length > 0 && (
-          <TouchableOpacity onPress={handleClearAll}>
-            <Text className="text-primary">Clear All</Text>
-          </TouchableOpacity>
+      <FlatList
+        data={notifications}
+        renderItem={renderNotificationItem}
+        keyExtractor={(item) => item.id}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+        onEndReached={loadMoreNotifications}
+        onEndReachedThreshold={0.5}
+        ListHeaderComponent={() => (
+          <View className="p-4 bg-white border-b border-gray-200">
+            <Text className="text-lg font-bold">Notifications</Text>
+          </View>
         )}
-      </View>
-      
-      {loading && !refreshing ? (
-        <View className="flex-1 justify-center items-center">
-          <ActivityIndicator size="large" color="#0070f3" />
-        </View>
-      ) : notifications.length === 0 ? (
-        <View className="flex-1 justify-center items-center p-4">
-          <Text className="text-xl font-medium text-gray-800 mb-2">No notifications</Text>
-          <Text className="text-center text-gray-500 mb-6">
-            You'll receive notifications about job alerts, application updates, and more.
-          </Text>
-          <Button 
-            title="Browse Jobs" 
-            onPress={() => navigation.navigate('Main')}
-            variant="outline"
-          />
-        </View>
-      ) : (
-        <FlatList
-          data={notifications}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              className={`p-4 border-b border-gray-200 ${!item.read ? 'bg-blue-50' : 'bg-white'}`}
-              onPress={() => handleNotificationPress(item)}
-            >
-              <View className="flex-row">
-                <Text className="text-2xl mr-3">{getNotificationIcon(item.type)}</Text>
-                <View className="flex-1">
-                  <Text className={`font-medium ${!item.read ? 'text-black' : 'text-gray-800'}`}>
-                    {item.title}
-                  </Text>
-                  <Text className={`mt-1 ${!item.read ? 'text-gray-700' : 'text-gray-500'}`}>
-                    {item.body}
-                  </Text>
-                  <Text className="text-gray-400 text-xs mt-2">
-                    {formatDate(item.createdAt)}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  className="ml-2 p-2"
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    deleteNotification(item.id);
-                  }}
-                  hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}
-                >
-                  <Text className="text-gray-400">✕</Text>
-                </TouchableOpacity>
-              </View>
-            </TouchableOpacity>
-          )}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
-        />
-      )}
+        ListFooterComponent={() => (
+          loading && !refreshing ? (
+            <View className="py-4">
+              <ActivityIndicator size="small" color="#0070f3" />
+            </View>
+          ) : null
+        )}
+        ListEmptyComponent={() => (
+          !loading ? (
+            <View className="p-4 items-center justify-center">
+              <Text className="text-gray-500">No notifications yet</Text>
+            </View>
+          ) : null
+        )}
+      />
     </SafeAreaView>
   );
 }
